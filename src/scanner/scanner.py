@@ -11,6 +11,8 @@ import hashlib
 from datetime import datetime
 from pathlib import Path
 
+import filetype
+
 from core.logger import get_logger
 from .file_info import FileInfo
 
@@ -104,6 +106,7 @@ class FileScanner:
                     continue
 
                 file_hash = self._hash_file(item)
+                detected_type = self._detect_file_type(item)
 
                 file_info = FileInfo(
                     name=item.name,
@@ -113,6 +116,7 @@ class FileScanner:
                     created=datetime.fromtimestamp(stat.st_ctime),
                     modified=datetime.fromtimestamp(stat.st_mtime),
                     file_hash=file_hash,
+                    detected_type=detected_type,
                 )
 
                 files.append(file_info)
@@ -154,3 +158,32 @@ class FileScanner:
             return None
 
         return sha256.hexdigest()
+
+    def _detect_file_type(self, path: Path) -> str | None:
+        """
+        Detect a file's real type by reading its header bytes,
+        regardless of what its extension claims.
+
+        Args:
+            path (Path):
+                The file to inspect.
+
+        Returns:
+            str | None:
+                The detected MIME type (e.g. "image/jpeg"), or None
+                if the file could not be read, or if its type could
+                not be determined. A None result for plain text
+                files is expected and normal — text formats have no
+                distinctive header bytes to detect.
+        """
+
+        try:
+            kind = filetype.guess(str(path))
+        except OSError as error:
+            logger.warning("Could not read file %s for type detection: %s", path, error)
+            return None
+
+        if kind is None:
+            return None
+
+        return kind.mime

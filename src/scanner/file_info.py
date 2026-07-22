@@ -14,3 +14,4 @@ class FileInfo:
     created: datetime
     modified: datetime
     file_hash: str | None = None
+    detected_type: str | None = None

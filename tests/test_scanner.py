@@ -138,3 +138,40 @@ def test_scan_gives_different_files_different_hashes(tmp_path):
 
     hashes = {f.name: f.file_hash for f in results}
     assert hashes["file_a.txt"] != hashes["file_b.txt"]
+
+
+def test_scan_detects_real_type_from_content(tmp_path):
+    """A file's real type should be detected from its content, not its name."""
+    jpeg_header = bytes.fromhex("FFD8FFE0") + b"0" * 20
+    file_path = tmp_path / "photo.jpg"
+    file_path.write_bytes(jpeg_header)
+
+    scanner = FileScanner()
+    results = scanner.scan(tmp_path)
+
+    assert results[0].detected_type == "image/jpeg"
+
+
+def test_scan_detects_mismatched_extension(tmp_path):
+    """A file with JPEG content but a .txt name should still be
+    detected as image/jpeg — proving detection uses content, not name."""
+    jpeg_header = bytes.fromhex("FFD8FFE0") + b"0" * 20
+    file_path = tmp_path / "disguised.txt"
+    file_path.write_bytes(jpeg_header)
+
+    scanner = FileScanner()
+    results = scanner.scan(tmp_path)
+
+    assert results[0].detected_type == "image/jpeg"
+
+
+def test_scan_plain_text_has_no_detected_type(tmp_path):
+    """Plain text files have no magic number, so detected_type
+    should be None. This is expected, normal behavior."""
+    file_path = tmp_path / "notes.txt"
+    file_path.write_text("just some plain text")
+
+    scanner = FileScanner()
+    results = scanner.scan(tmp_path)
+
+    assert results[0].detected_type is None
