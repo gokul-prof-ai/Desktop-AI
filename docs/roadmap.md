@@ -33,8 +33,8 @@ This roadmap outlines the planned development phases of DesktopAI.
 
 ## Phase 4 — Database
 
-- [ ] SQLite database
-- [ ] Store file metadata
+- [x] SQLite database
+- [x] Store file metadata
 - [ ] History tracking
 
 ---
