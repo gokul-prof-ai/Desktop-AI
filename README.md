@@ -23,7 +23,21 @@ It is designed to become an AI Operating System Companion capable of:
 
 ---
 
-## Core Features
+## Current Capabilities
+
+DesktopAI currently includes an early foundation for local file indexing:
+
+- Recursive folder scanning with a configurable depth limit
+- File metadata extraction
+- SHA-256 file hashing
+- File type detection from file content
+- SQLite storage for scanned file metadata
+- Centralized logging
+- Unit tests for scanner, database, and logger behavior
+
+---
+
+## Planned Features
 
 ### File Management
 
@@ -32,6 +46,7 @@ It is designed to become an AI Operating System Companion capable of:
 - Duplicate detection
 - Large file discovery
 - Empty folder cleanup
+- Undo support for file operations
 
 ### Document Intelligence
 
@@ -61,27 +76,34 @@ It is designed to become an AI Operating System Companion capable of:
 ## Tech Stack
 
 - Python 3.13
-- Ollama
 - SQLite
+- pytest
+- filetype
+- Watchdog
+- Ollama
 - PySide6
 - FAISS
 - EasyOCR
 - PyMuPDF
-- Watchdog
 
 ---
 
 ## Project Status
 
-🚧 Phase 1 — Planning
+Phase 4 - Database foundation
 
 ---
 
 ## Roadmap
 
 - [x] Project Planning
-- [ ] File Scanner
-- [ ] Database
+- [x] File Scanner
+- [x] File Hashing
+- [x] File Type Detection
+- [x] SQLite Database Foundation
+- [x] Logging
+- [x] Unit Tests
+- [ ] Configuration Management
 - [ ] AI Integration
 - [ ] Organizer Engine
 - [ ] Semantic Search

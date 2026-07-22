@@ -4,7 +4,7 @@ This roadmap outlines the planned development phases of DesktopAI.
 
 ---
 
-## Phase 1 — Planning
+## Phase 1 - Planning
 
 - [x] Create GitHub repository
 - [x] Project structure
@@ -13,7 +13,7 @@ This roadmap outlines the planned development phases of DesktopAI.
 
 ---
 
-## Phase 2 — Development Environment
+## Phase 2 - Development Environment
 
 - [x] Configure Python environment
 - [x] Install dependencies
@@ -22,7 +22,7 @@ This roadmap outlines the planned development phases of DesktopAI.
 
 ---
 
-## Phase 3 — File Scanner
+## Phase 3 - File Scanner
 
 - [x] Folder scanning
 - [x] Metadata extraction
@@ -31,7 +31,7 @@ This roadmap outlines the planned development phases of DesktopAI.
 
 ---
 
-## Phase 4 — Database
+## Phase 4 - Database
 
 - [x] SQLite database
 - [x] Store file metadata
@@ -39,7 +39,7 @@ This roadmap outlines the planned development phases of DesktopAI.
 
 ---
 
-## Phase 5 — Document Processing
+## Phase 5 - Document Processing
 
 - [ ] PDF reader
 - [ ] DOCX reader
@@ -48,7 +48,7 @@ This roadmap outlines the planned development phases of DesktopAI.
 
 ---
 
-## Phase 6 — Local AI
+## Phase 6 - Local AI
 
 - [ ] Ollama integration
 - [ ] AI file classification
@@ -57,7 +57,7 @@ This roadmap outlines the planned development phases of DesktopAI.
 
 ---
 
-## Phase 7 — Organizer
+## Phase 7 - Organizer
 
 - [ ] Preview changes
 - [ ] File organization
@@ -65,7 +65,7 @@ This roadmap outlines the planned development phases of DesktopAI.
 
 ---
 
-## Phase 8 — Folder Watcher
+## Phase 8 - Folder Watcher
 
 - [ ] Monitor Downloads
 - [ ] Monitor Desktop
@@ -73,7 +73,7 @@ This roadmap outlines the planned development phases of DesktopAI.
 
 ---
 
-## Phase 9 — Semantic Search
+## Phase 9 - Semantic Search
 
 - [ ] Embeddings
 - [ ] FAISS integration
@@ -81,7 +81,7 @@ This roadmap outlines the planned development phases of DesktopAI.
 
 ---
 
-## Phase 10 — Desktop Interface
+## Phase 10 - Desktop Interface
 
 - [ ] Dashboard
 - [ ] Search page
@@ -90,14 +90,14 @@ This roadmap outlines the planned development phases of DesktopAI.
 
 ---
 
-## Phase 11 — Memory System
+## Phase 11 - Memory System
 
 - [ ] Learn user preferences
 - [ ] Remember folder choices
 
 ---
 
-## Phase 12 — AI Planner
+## Phase 12 - AI Planner
 
 - [ ] Multi-step planning
 - [ ] Task execution
@@ -105,15 +105,15 @@ This roadmap outlines the planned development phases of DesktopAI.
 
 ---
 
-## Phase 13 — Testing
+## Phase 13 - Testing
 
-- [ ] Unit tests
+- [x] Unit tests
 - [ ] Integration tests
 - [ ] Performance testing
 
 ---
 
-## Phase 14 — Release
+## Phase 14 - Release
 
 - [ ] Package application
 - [ ] Installer
