@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from core.logger import get_logger
+from database.database import DatabaseManager
 from scanner.scanner import FileScanner
 
 logger = get_logger("app")
@@ -21,22 +22,25 @@ def main():
 
     logger.info("Application started.")
 
-    scanner = FileScanner()
-
     project_root = Path(__file__).resolve().parent.parent
-    folder = project_root / "data"
+    data_folder = project_root / "data"
 
-    files = scanner.scan(folder)
+    scanner = FileScanner()
+    files = scanner.scan(data_folder)
+
+    db = DatabaseManager(project_root / "data" / "desktopai.db")
+    db.connect()
+    for file in files:
+        db.save_file(file)
+    db.close()
 
     print(f"\nFound {len(files)} file(s):\n")
 
     for file in files:
-        # Show a shortened version of the hash (first 12 characters)
-        # since the full 64-character SHA-256 hash is hard to read
-        # at a glance in a console listing.
         hash_preview = file.file_hash[:12] if file.file_hash else "unreadable"
         print(f"- {file.name} ({file.size} bytes) [{hash_preview}]")
 
+    print(f"\nSaved {len(files)} record(s) to database.")
     print("=" * 50)
 
 
