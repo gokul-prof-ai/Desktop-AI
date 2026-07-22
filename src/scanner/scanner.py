@@ -6,10 +6,13 @@ This module scans a folder and collects basic metadata
 about each file without modifying anything.
 """
 
+import logging
 from datetime import datetime
 from pathlib import Path
 
 from .file_info import FileInfo
+
+logger = logging.getLogger(__name__)
 
 
 class FileScanner:
@@ -45,8 +48,17 @@ class FileScanner:
             if not item.is_file():
                 continue
 
-            # Read file metadata
-            stat = item.stat()
+            # Ignore hidden/system files like .gitkeep, .DS_Store
+            if item.name.startswith("."):
+                continue
+
+            # Read file metadata, but don't let one bad file
+            # (locked, permission-denied, etc.) kill the whole scan
+            try:
+                stat = item.stat()
+            except OSError as error:
+                logger.warning("Skipping unreadable file %s: %s", item, error)
+                continue
 
             # Create a FileInfo object
             file_info = FileInfo(

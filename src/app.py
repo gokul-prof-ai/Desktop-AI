@@ -18,7 +18,12 @@ def main():
 
     scanner = FileScanner()
 
-    folder = Path("data")
+    # Anchor the data folder to the project root, not to the
+    # current working directory. This means "python app.py"
+    # works the same whether you run it from the repo root,
+    # from inside src/, or from anywhere else.
+    project_root = Path(__file__).resolve().parent.parent
+    folder = project_root / "data"
 
     files = scanner.scan(folder)
 
