@@ -6,13 +6,13 @@ This module scans a folder and collects basic metadata
 about each file without modifying anything.
 """
 
-import logging
 from datetime import datetime
 from pathlib import Path
 
+from core.logger import get_logger
 from .file_info import FileInfo
 
-logger = logging.getLogger(__name__)
+logger = get_logger("scanner")
 
 
 class FileScanner:
@@ -40,6 +40,8 @@ class FileScanner:
         # Check whether the path is actually a directory
         if not folder.is_dir():
             raise NotADirectoryError(f"{folder} is not a directory.")
+
+        logger.info("Scanning folder: %s", folder)
 
         # Loop through every item inside the folder
         for item in folder.iterdir():
@@ -72,5 +74,7 @@ class FileScanner:
 
             # Add it to the list
             files.append(file_info)
+
+        logger.info("Scan complete: %d file(s) found in %s", len(files), folder)
 
         return files

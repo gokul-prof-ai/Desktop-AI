@@ -6,7 +6,10 @@ Main Entry Point
 from datetime import datetime
 from pathlib import Path
 
+from core.logger import get_logger
 from scanner.scanner import FileScanner
+
+logger = get_logger("app")
 
 
 def main():
@@ -16,12 +19,10 @@ def main():
     print(f"Started: {datetime.now()}")
     print("Status: Ready")
 
+    logger.info("Application started.")
+
     scanner = FileScanner()
 
-    # Anchor the data folder to the project root, not to the
-    # current working directory. This means "python app.py"
-    # works the same whether you run it from the repo root,
-    # from inside src/, or from anywhere else.
     project_root = Path(__file__).resolve().parent.parent
     folder = project_root / "data"
 
