@@ -32,16 +32,55 @@ def test_scan_skips_hidden_files(tmp_path):
     assert names == {"real_file.txt"}
 
 
-def test_scan_ignores_subfolders(tmp_path):
-    """Subdirectories should not appear as scanned files."""
-    (tmp_path / "subfolder").mkdir()
-    (tmp_path / "file.txt").write_text("hello")
+def test_scan_recurses_into_subfolders(tmp_path):
+    """Files inside subfolders should be found, not just top-level files."""
+    (tmp_path / "top_level.txt").write_text("hello")
+
+    subfolder = tmp_path / "subfolder"
+    subfolder.mkdir()
+    (subfolder / "nested.txt").write_text("hello")
 
     scanner = FileScanner()
     results = scanner.scan(tmp_path)
 
     names = {f.name for f in results}
-    assert names == {"file.txt"}
+    assert names == {"top_level.txt", "nested.txt"}
+
+
+def test_scan_respects_max_depth(tmp_path):
+    """Files deeper than max_depth should not be found."""
+    level_1 = tmp_path / "level_1"
+    level_2 = level_1 / "level_2"
+    level_2.mkdir(parents=True)
+
+    (level_1 / "shallow.txt").write_text("hello")
+    (level_2 / "deep.txt").write_text("hello")
+
+    scanner = FileScanner()
+
+    # max_depth=1 means: top folder (depth 0) + one level of
+    # subfolders (depth 1). level_2 is depth 2, so it should
+    # be excluded.
+    results = scanner.scan(tmp_path, max_depth=1)
+
+    names = {f.name for f in results}
+    assert names == {"shallow.txt"}
+    assert "deep.txt" not in names
+
+
+def test_scan_max_depth_zero_is_non_recursive(tmp_path):
+    """max_depth=0 should behave like the old non-recursive scan."""
+    (tmp_path / "top_level.txt").write_text("hello")
+
+    subfolder = tmp_path / "subfolder"
+    subfolder.mkdir()
+    (subfolder / "nested.txt").write_text("hello")
+
+    scanner = FileScanner()
+    results = scanner.scan(tmp_path, max_depth=0)
+
+    names = {f.name for f in results}
+    assert names == {"top_level.txt"}
 
 
 def test_scan_raises_on_missing_folder(tmp_path):
