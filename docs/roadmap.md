@@ -9,15 +9,15 @@ This roadmap outlines the planned development phases of DesktopAI.
 - [x] Create GitHub repository
 - [x] Project structure
 - [x] Documentation
-- [ ] Define coding standards
+- [x] Define coding standards
 
 ---
 
 ## Phase 2 — Development Environment
 
-- [ ] Configure Python environment
-- [ ] Install dependencies
-- [ ] Configure logging
+- [x] Configure Python environment
+- [x] Install dependencies
+- [x] Configure logging
 - [ ] Configuration management
 
 ---
