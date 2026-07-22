@@ -7,6 +7,7 @@ limit — and collects basic metadata about each file without
 modifying anything.
 """
 
+import hashlib
 from datetime import datetime
 from pathlib import Path
 
@@ -14,6 +15,10 @@ from core.logger import get_logger
 from .file_info import FileInfo
 
 logger = get_logger("scanner")
+
+# Read files in fixed-size chunks when hashing, so memory usage
+# stays constant even for very large files.
+HASH_CHUNK_SIZE = 8192
 
 
 class FileScanner:
@@ -98,6 +103,8 @@ class FileScanner:
                     logger.warning("Skipping unreadable file %s: %s", item, error)
                     continue
 
+                file_hash = self._hash_file(item)
+
                 file_info = FileInfo(
                     name=item.name,
                     path=item,
@@ -105,6 +112,7 @@ class FileScanner:
                     size=stat.st_size,
                     created=datetime.fromtimestamp(stat.st_ctime),
                     modified=datetime.fromtimestamp(stat.st_mtime),
+                    file_hash=file_hash,
                 )
 
                 files.append(file_info)
@@ -117,3 +125,32 @@ class FileScanner:
         )
 
         return files
+
+    def _hash_file(self, path: Path) -> str | None:
+        """
+        Compute the SHA-256 hash of a file's contents.
+
+        Reads the file in fixed-size chunks rather than all at once,
+        so memory usage stays constant regardless of file size.
+
+        Args:
+            path (Path):
+                The file to hash.
+
+        Returns:
+            str | None:
+                The hash as a hex string, or None if the file
+                could not be read (e.g. locked or permission denied).
+        """
+
+        sha256 = hashlib.sha256()
+
+        try:
+            with path.open("rb") as file:
+                for chunk in iter(lambda: file.read(HASH_CHUNK_SIZE), b""):
+                    sha256.update(chunk)
+        except OSError as error:
+            logger.warning("Could not hash file %s: %s", path, error)
+            return None
+
+        return sha256.hexdigest()

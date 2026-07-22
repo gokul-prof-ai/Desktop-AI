@@ -13,3 +13,4 @@ class FileInfo:
     size: int
     created: datetime
     modified: datetime
+    file_hash: str | None = None

@@ -3,6 +3,8 @@ DesktopAI
 Tests for the Scanner module.
 """
 
+import hashlib
+
 import pytest
 
 from scanner.scanner import FileScanner
@@ -58,9 +60,6 @@ def test_scan_respects_max_depth(tmp_path):
 
     scanner = FileScanner()
 
-    # max_depth=1 means: top folder (depth 0) + one level of
-    # subfolders (depth 1). level_2 is depth 2, so it should
-    # be excluded.
     results = scanner.scan(tmp_path, max_depth=1)
 
     names = {f.name for f in results}
@@ -100,3 +99,42 @@ def test_scan_raises_on_non_directory(tmp_path):
     scanner = FileScanner()
     with pytest.raises(NotADirectoryError):
         scanner.scan(a_file)
+
+
+def test_scan_computes_correct_sha256_hash(tmp_path):
+    """The computed hash should match Python's own hashlib result."""
+    content = b"hello world"
+    file_path = tmp_path / "sample.txt"
+    file_path.write_bytes(content)
+
+    expected_hash = hashlib.sha256(content).hexdigest()
+
+    scanner = FileScanner()
+    results = scanner.scan(tmp_path)
+
+    assert len(results) == 1
+    assert results[0].file_hash == expected_hash
+
+
+def test_scan_gives_identical_files_the_same_hash(tmp_path):
+    """Two files with identical content should have identical hashes."""
+    (tmp_path / "original.txt").write_bytes(b"duplicate content")
+    (tmp_path / "copy.txt").write_bytes(b"duplicate content")
+
+    scanner = FileScanner()
+    results = scanner.scan(tmp_path)
+
+    hashes = {f.name: f.file_hash for f in results}
+    assert hashes["original.txt"] == hashes["copy.txt"]
+
+
+def test_scan_gives_different_files_different_hashes(tmp_path):
+    """Two files with different content should have different hashes."""
+    (tmp_path / "file_a.txt").write_bytes(b"content A")
+    (tmp_path / "file_b.txt").write_bytes(b"content B")
+
+    scanner = FileScanner()
+    results = scanner.scan(tmp_path)
+
+    hashes = {f.name: f.file_hash for f in results}
+    assert hashes["file_a.txt"] != hashes["file_b.txt"]

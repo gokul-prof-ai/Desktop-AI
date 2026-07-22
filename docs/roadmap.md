@@ -24,9 +24,9 @@ This roadmap outlines the planned development phases of DesktopAI.
 
 ## Phase 3 — File Scanner
 
-- [ ] Folder scanning
-- [ ] Metadata extraction
-- [ ] File hashing
+- [x] Folder scanning
+- [x] Metadata extraction
+- [x] File hashing
 - [ ] File type detection
 
 ---
