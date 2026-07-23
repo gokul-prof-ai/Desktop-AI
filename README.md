@@ -35,8 +35,9 @@ DesktopAI currently includes:
 - Text extraction from PDF, DOCX, and Excel files, plus OCR for images
 - Local AI file classification, summarization, and folder recommendations (via Ollama)
 - File organization with a mandatory preview step and full undo support
+- Offline-first folder watching (Downloads/Desktop) with real-time AI suggestions
 - Centralized logging and configuration
-- Unit tests covering every module above (60 tests)
+- Unit tests covering every module above (69 tests)
 
 ---
 
@@ -52,7 +53,7 @@ DesktopAI currently includes:
 ### AI
 
 - Natural language commands
-- Offline-first folder watching (auto-organize Downloads/Desktop)
+- Auto-organize (move files) straight from watcher suggestions, not just print them
 
 ### Search
 
@@ -87,7 +88,7 @@ DesktopAI currently includes:
 
 ## Project Status
 
-Phase 7 - Organizer (see [docs/roadmap.md](docs/roadmap.md) for the full phase breakdown)
+Phase 8 - Folder Watcher complete (see [docs/roadmap.md](docs/roadmap.md) for the full phase breakdown)
 
 ---
 
@@ -104,7 +105,7 @@ Phase 7 - Organizer (see [docs/roadmap.md](docs/roadmap.md) for the full phase b
 - [x] Configuration Management
 - [x] AI Integration (classification, summarization, recommendations)
 - [x] Organizer Engine (preview, apply, undo)
-- [ ] Folder Watcher
+- [x] Folder Watcher
 - [ ] Semantic Search
 - [ ] GUI
 - [ ] Voice Support
