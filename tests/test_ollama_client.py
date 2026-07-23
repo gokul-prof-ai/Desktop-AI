@@ -8,11 +8,17 @@ import requests
 from ai.ollama_client import generate_response
 
 
-def test_generate_response_returns_none_when_ollama_not_running():
-    """If nothing is listening on the Ollama port, this should
-    return None gracefully, not raise an exception. This test does
-    NOT require Ollama to be installed — it specifically checks
-    that the app survives Ollama being unavailable."""
+def test_generate_response_returns_none_on_connection_error(monkeypatch):
+    """If Ollama isn't reachable, this should return None gracefully,
+    not raise. We simulate the failure directly rather than relying
+    on Ollama actually being off, since it may be running on whatever
+    machine runs these tests (including yours, now that it's installed)."""
+
+    def fake_post(url, json, timeout):
+        raise requests.exceptions.ConnectionError("Connection refused")
+
+    monkeypatch.setattr(requests, "post", fake_post)
+
     result = generate_response("Hello, are you there?")
 
     assert result is None
