@@ -67,17 +67,17 @@ This roadmap outlines the planned development phases of DesktopAI.
 
 ## Phase 8 - Folder Watcher
 
-- [ ] Monitor Downloads
-- [ ] Monitor Desktop
-- [ ] Real-time suggestions
+- [x] Monitor Downloads
+- [x] Monitor Desktop
+- [x] Real-time suggestions
 
 ---
 
 ## Phase 9 - Semantic Search
 
-- [ ] Embeddings
-- [ ] FAISS integration
-- [ ] Natural language search
+- [x] Embeddings
+- [x] FAISS integration
+- [x] Natural language search
 
 ---
 

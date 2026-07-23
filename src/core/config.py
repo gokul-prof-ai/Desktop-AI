@@ -142,3 +142,31 @@ WATCH_STABILITY_SECONDS = _get_int("WATCH_STABILITY_SECONDS", 2)
 # How often (in seconds) the watcher re-checks a pending file's
 # size while waiting for it to stabilize.
 WATCH_POLL_INTERVAL_SECONDS = _get_int("WATCH_POLL_INTERVAL_SECONDS", 1)
+# ---------------------------------------------------------------
+# Search (Semantic)
+# ---------------------------------------------------------------
+
+# The local Ollama server's embeddings endpoint.
+OLLAMA_EMBEDDINGS_URL = _get_str(
+    "OLLAMA_EMBEDDINGS_URL", "http://localhost:11434/api/embeddings"
+)
+
+# Which Ollama model generates embeddings. This is a separate,
+# much smaller/faster model than OLLAMA_MODEL (which handles
+# chat-style tasks like classification/summarization) — good for
+# low-end machines. Must already be pulled locally
+# (run: ollama pull all-minilm).
+EMBEDDING_MODEL = _get_str("EMBEDDING_MODEL", "all-minilm")
+
+# How much extracted text to send to the embedding model per file.
+# Longer text is truncated first, so embedding stays fast even on
+# low-end hardware.
+EMBEDDING_MAX_TEXT_LENGTH = _get_int("EMBEDDING_MAX_TEXT_LENGTH", 2000)
+
+# Where the semantic search index is saved on disk. Two files are
+# written next to this path: "<name>.faiss" (the vectors) and
+# "<name>.json" (which file path each vector belongs to).
+SEARCH_INDEX_PATH = PROJECT_ROOT / "data" / "search_index"
+
+# How many results semantic_search() returns by default.
+SEARCH_TOP_K = _get_int("SEARCH_TOP_K", 5)
