@@ -52,6 +52,22 @@ def _get_str(name: str, default: str) -> str:
     return os.environ.get(f"DESKTOPAI_{name}", default)
 
 
+def _get_path_list(name: str, default: list[Path]) -> list[Path]:
+    """
+    Read a comma-separated list of folder paths from an environment
+    variable named DESKTOPAI_<name>, falling back to `default` if
+    it isn't set.
+
+    Example: DESKTOPAI_WATCH_FOLDERS=C:\\Users\\me\\Downloads,C:\\Users\\me\\Desktop
+    """
+    raw_value = os.environ.get(f"DESKTOPAI_{name}")
+
+    if raw_value is None:
+        return default
+
+    return [Path(piece.strip()) for piece in raw_value.split(",") if piece.strip()]
+
+
 # ---------------------------------------------------------------
 # Scanner
 # ---------------------------------------------------------------
@@ -105,3 +121,24 @@ SUMMARIZER_MAX_TEXT_LENGTH = _get_int("SUMMARIZER_MAX_TEXT_LENGTH", 4000)
 RECOMMENDER_MAX_TEXT_PREVIEW_LENGTH = _get_int(
     "RECOMMENDER_MAX_TEXT_PREVIEW_LENGTH", 500
 )
+
+
+# ---------------------------------------------------------------
+# Watcher
+# ---------------------------------------------------------------
+
+# Folders watched for newly created files. Defaults to the current
+# user's Downloads and Desktop folders.
+WATCH_FOLDERS = _get_path_list(
+    "WATCH_FOLDERS",
+    [Path.home() / "Downloads", Path.home() / "Desktop"],
+)
+
+# How long (in seconds) a file's size must stay unchanged before
+# it's treated as "done" being written or downloaded. Prevents
+# generating a suggestion for a half-downloaded file.
+WATCH_STABILITY_SECONDS = _get_int("WATCH_STABILITY_SECONDS", 2)
+
+# How often (in seconds) the watcher re-checks a pending file's
+# size while waiting for it to stabilize.
+WATCH_POLL_INTERVAL_SECONDS = _get_int("WATCH_POLL_INTERVAL_SECONDS", 1)
