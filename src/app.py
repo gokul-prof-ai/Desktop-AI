@@ -4,8 +4,8 @@ Main Entry Point
 """
 
 from datetime import datetime
-from pathlib import Path
 
+from core import config
 from core.logger import get_logger
 from database.database import DatabaseManager
 from scanner.scanner import FileScanner
@@ -22,13 +22,12 @@ def main():
 
     logger.info("Application started.")
 
-    project_root = Path(__file__).resolve().parent.parent
-    data_folder = project_root / "data"
+    data_folder = config.PROJECT_ROOT / "data"
 
     scanner = FileScanner()
     files = scanner.scan(data_folder)
 
-    db = DatabaseManager(project_root / "data" / "desktopai.db")
+    db = DatabaseManager(config.DATABASE_PATH)
     db.connect()
     for file in files:
         db.save_file(file)

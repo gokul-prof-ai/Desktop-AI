@@ -8,14 +8,15 @@ logger through get_logger() instead of configuring logging itself.
 """
 
 import logging
-from pathlib import Path
+
+from core import config
 
 LOG_FORMAT = "%(asctime)s | %(levelname)-8s | %(name)s | %(message)s"
 DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
-# Anchor logs/ to the project root, regardless of where a script
-# is launched from (same reasoning as the app.py path fix).
-LOGS_DIR = Path(__file__).resolve().parent.parent.parent / "logs"
+# Anchored to the project root via config, regardless of where a
+# script is launched from.
+LOGS_DIR = config.LOGS_DIR
 
 
 def get_logger(name: str) -> logging.Logger:

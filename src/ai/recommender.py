@@ -10,6 +10,7 @@ the Organizer module's job, later, with user approval.
 """
 
 from ai.ollama_client import generate_response
+from core import config
 from core.logger import get_logger
 
 logger = get_logger("ai")
@@ -25,8 +26,6 @@ RECOMMENDATION_PROMPT_TEMPLATE = (
     "Content preview: {text_preview}\n\n"
     "Suggested folder:"
 )
-
-MAX_TEXT_PREVIEW_LENGTH = 500
 
 
 def recommend_action(file_name: str, category: str | None = None, text: str = "") -> str | None:
@@ -55,7 +54,11 @@ def recommend_action(file_name: str, category: str | None = None, text: str = ""
         logger.info("No file name provided for recommendation; skipping.")
         return None
 
-    text_preview = text[:MAX_TEXT_PREVIEW_LENGTH] if text else "(no content available)"
+    text_preview = (
+        text[: config.RECOMMENDER_MAX_TEXT_PREVIEW_LENGTH]
+        if text
+        else "(no content available)"
+    )
     category_display = category if category else "(unknown)"
 
     prompt = RECOMMENDATION_PROMPT_TEMPLATE.format(

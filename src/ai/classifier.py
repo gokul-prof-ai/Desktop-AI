@@ -8,6 +8,7 @@ file based on its extracted text content (e.g. "Resume", "Invoice",
 """
 
 from ai.ollama_client import generate_response
+from core import config
 from core.logger import get_logger
 
 logger = get_logger("ai")
@@ -20,11 +21,6 @@ CLASSIFICATION_PROMPT_TEMPLATE = (
     "Do not add any explanation, punctuation, or extra text.\n\n"
     "Text:\n{text}\n\nCategory:"
 )
-
-# Very long documents are truncated so the classification request
-# stays fast and reliable — we only need enough text to identify
-# the type of document, not the whole thing.
-MAX_TEXT_LENGTH = 2000
 
 
 def classify_file(text: str) -> str | None:
@@ -46,7 +42,7 @@ def classify_file(text: str) -> str | None:
         logger.info("No text provided for classification; skipping.")
         return None
 
-    truncated_text = text[:MAX_TEXT_LENGTH]
+    truncated_text = text[: config.CLASSIFIER_MAX_TEXT_LENGTH]
     prompt = CLASSIFICATION_PROMPT_TEMPLATE.format(text=truncated_text)
 
     category = generate_response(prompt)

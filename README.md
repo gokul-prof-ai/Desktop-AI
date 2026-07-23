@@ -25,15 +25,18 @@ It is designed to become an AI Operating System Companion capable of:
 
 ## Current Capabilities
 
-DesktopAI currently includes an early foundation for local file indexing:
+DesktopAI currently includes:
 
 - Recursive folder scanning with a configurable depth limit
 - File metadata extraction
 - SHA-256 file hashing
 - File type detection from file content
 - SQLite storage for scanned file metadata
-- Centralized logging
-- Unit tests for scanner, database, and logger behavior
+- Text extraction from PDF, DOCX, and Excel files, plus OCR for images
+- Local AI file classification, summarization, and folder recommendations (via Ollama)
+- File organization with a mandatory preview step and full undo support
+- Centralized logging and configuration
+- Unit tests covering every module above (60 tests)
 
 ---
 
@@ -41,35 +44,27 @@ DesktopAI currently includes an early foundation for local file indexing:
 
 ### File Management
 
-- Intelligent file organization
 - Automatic categorization
 - Duplicate detection
 - Large file discovery
 - Empty folder cleanup
-- Undo support for file operations
-
-### Document Intelligence
-
-- PDF understanding
-- Word document reading
-- Excel analysis
-- OCR for images
-- Metadata extraction
 
 ### AI
 
-- Local Large Language Models
 - Natural language commands
-- AI reasoning
-- Personalized recommendations
-- Offline-first operation
+- Offline-first folder watching (auto-organize Downloads/Desktop)
 
 ### Search
 
-- Semantic search
+- Semantic search (FAISS-based)
 - Keyword search
 - Content search
 - Smart filters
+
+### Interface
+
+- Desktop GUI (PySide6)
+- Voice support
 
 ---
 
@@ -81,16 +76,18 @@ DesktopAI currently includes an early foundation for local file indexing:
 - filetype
 - Watchdog
 - Ollama
-- PySide6
-- FAISS
-- EasyOCR
-- PyMuPDF
+- PyMuPDF (PDF text extraction)
+- python-docx (Word text extraction)
+- openpyxl (Excel text extraction)
+- pytesseract (OCR for images)
+- PySide6 (planned, GUI)
+- FAISS (planned, semantic search)
 
 ---
 
 ## Project Status
 
-Phase 4 - Database foundation
+Phase 7 - Organizer (see [docs/roadmap.md](docs/roadmap.md) for the full phase breakdown)
 
 ---
 
@@ -103,9 +100,11 @@ Phase 4 - Database foundation
 - [x] SQLite Database Foundation
 - [x] Logging
 - [x] Unit Tests
-- [ ] Configuration Management
-- [ ] AI Integration
-- [ ] Organizer Engine
+- [x] Document Readers (PDF, DOCX, Excel, OCR)
+- [x] Configuration Management
+- [x] AI Integration (classification, summarization, recommendations)
+- [x] Organizer Engine (preview, apply, undo)
+- [ ] Folder Watcher
 - [ ] Semantic Search
 - [ ] GUI
 - [ ] Voice Support

@@ -18,7 +18,7 @@ This roadmap outlines the planned development phases of DesktopAI.
 - [x] Configure Python environment
 - [x] Install dependencies
 - [x] Configure logging
-- [ ] Configuration management
+- [x] Configuration management
 
 ---
 
@@ -50,18 +50,18 @@ This roadmap outlines the planned development phases of DesktopAI.
 
 ## Phase 6 - Local AI
 
-- [ ] Ollama integration
-- [ ] AI file classification
-- [ ] AI summaries
-- [ ] AI recommendations
+- [x] Ollama integration
+- [x] AI file classification
+- [x] AI summaries
+- [x] AI recommendations
 
 ---
 
 ## Phase 7 - Organizer
 
-- [ ] Preview changes
-- [ ] File organization
-- [ ] Undo system
+- [x] Preview changes
+- [x] File organization
+- [x] Undo system
 
 ---
 

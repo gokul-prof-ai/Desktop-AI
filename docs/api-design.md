@@ -6,32 +6,30 @@ Every module should expose a clear and stable public interface.
 
 ---
 
-# Scanner
+# Scanner (implemented: src/scanner/scanner.py)
 
 Public API
 
-- scan_folder()
-- scan_file()
+- FileScanner().scan(folder, max_depth)
 
 Returns:
 
-- File metadata
-- File hash
-- File type
+- A list of FileInfo objects (name, path, extension, size, created,
+  modified, file_hash, detected_type)
 
 ---
 
-# Organizer
+# Organizer (implemented: src/organizer/organizer.py)
 
 Public API
 
-- preview_changes()
-- organize()
-- undo()
+- Organizer().preview(actions)
+- Organizer().apply(actions)
+- Organizer().undo_last()
 
 ---
 
-# Search
+# Search (planned — not yet implemented)
 
 Public API
 
@@ -40,7 +38,7 @@ Public API
 
 ---
 
-# Database
+# Database (implemented: src/database/database.py)
 
 Public API
 
@@ -51,17 +49,17 @@ Public API
 
 ---
 
-# AI
+# AI (implemented: src/ai/classifier.py, summarizer.py, recommender.py)
 
 Public API
 
-- classify_file()
-- summarize_document()
-- suggest_folder()
+- classify_file(text)
+- summarize_file(text)
+- recommend_action(file_name, category, text)
 
 ---
 
-# Memory
+# Memory (planned — not yet implemented)
 
 Public API
 

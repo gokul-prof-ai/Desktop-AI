@@ -7,6 +7,7 @@ summary of a file's extracted text content.
 """
 
 from ai.ollama_client import generate_response
+from core import config
 from core.logger import get_logger
 
 logger = get_logger("ai")
@@ -18,10 +19,6 @@ SUMMARY_PROMPT_TEMPLATE = (
     "preamble like 'Here is a summary' — just give the summary itself.\n\n"
     "Text:\n{text}\n\nSummary:"
 )
-
-# Very long documents are truncated before summarization, so the
-# request stays fast and reliable.
-MAX_TEXT_LENGTH = 4000
 
 
 def summarize_file(text: str) -> str | None:
@@ -43,7 +40,7 @@ def summarize_file(text: str) -> str | None:
         logger.info("No text provided for summarization; skipping.")
         return None
 
-    truncated_text = text[:MAX_TEXT_LENGTH]
+    truncated_text = text[: config.SUMMARIZER_MAX_TEXT_LENGTH]
     prompt = SUMMARY_PROMPT_TEMPLATE.format(text=truncated_text)
 
     summary = generate_response(prompt)

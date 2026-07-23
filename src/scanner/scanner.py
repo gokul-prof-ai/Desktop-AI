@@ -13,20 +13,17 @@ from pathlib import Path
 
 import filetype
 
+from core import config
 from core.logger import get_logger
 from .file_info import FileInfo
 
 logger = get_logger("scanner")
 
-# Read files in fixed-size chunks when hashing, so memory usage
-# stays constant even for very large files.
-HASH_CHUNK_SIZE = 8192
-
 
 class FileScanner:
     """Scans folders (recursively, up to a depth limit) and returns file metadata."""
 
-    def scan(self, folder: Path, max_depth: int = 5) -> list[FileInfo]:
+    def scan(self, folder: Path, max_depth: int = config.SCAN_MAX_DEPTH) -> list[FileInfo]:
         """
         Recursively scan a folder and its subfolders.
 
@@ -36,9 +33,9 @@ class FileScanner:
             max_depth (int):
                 How many levels of subfolders to descend into.
                 0 means only scan the top-level folder itself
-                (the old non-recursive behavior). Defaults to 5
-                so an unexpectedly deep folder tree can't make
-                the scan run forever.
+                (the old non-recursive behavior). Defaults to
+                config.SCAN_MAX_DEPTH so an unexpectedly deep
+                folder tree can't make the scan run forever.
 
         Returns:
             list[FileInfo]:
@@ -151,7 +148,7 @@ class FileScanner:
 
         try:
             with path.open("rb") as file:
-                for chunk in iter(lambda: file.read(HASH_CHUNK_SIZE), b""):
+                for chunk in iter(lambda: file.read(config.HASH_CHUNK_SIZE), b""):
                     sha256.update(chunk)
         except OSError as error:
             logger.warning("Could not hash file %s: %s", path, error)
