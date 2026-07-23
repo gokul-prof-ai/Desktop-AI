@@ -36,8 +36,10 @@ DesktopAI currently includes:
 - Local AI file classification, summarization, and folder recommendations (via Ollama)
 - File organization with a mandatory preview step and full undo support
 - Offline-first folder watching (Downloads/Desktop) with real-time AI suggestions
+- Semantic (natural-language) search over scanned files via local embeddings (`all-minilm`) and FAISS
+- Scanning a real folder: pass a path to `python src/app.py <folder>`, or set `DESKTOPAI_SCAN_FOLDER`
 - Centralized logging and configuration
-- Unit tests covering every module above (69 tests)
+- Unit tests covering every module above (88 tests)
 
 ---
 
@@ -57,7 +59,6 @@ DesktopAI currently includes:
 
 ### Search
 
-- Semantic search (FAISS-based)
 - Keyword search
 - Content search
 - Smart filters
@@ -81,14 +82,14 @@ DesktopAI currently includes:
 - python-docx (Word text extraction)
 - openpyxl (Excel text extraction)
 - pytesseract (OCR for images)
+- FAISS + NumPy (semantic search)
 - PySide6 (planned, GUI)
-- FAISS (planned, semantic search)
 
 ---
 
 ## Project Status
 
-Phase 8 - Folder Watcher complete (see [docs/roadmap.md](docs/roadmap.md) for the full phase breakdown)
+Phase 9 - Semantic Search complete (see [docs/roadmap.md](docs/roadmap.md) for the full phase breakdown)
 
 ---
 
@@ -106,7 +107,7 @@ Phase 8 - Folder Watcher complete (see [docs/roadmap.md](docs/roadmap.md) for th
 - [x] AI Integration (classification, summarization, recommendations)
 - [x] Organizer Engine (preview, apply, undo)
 - [x] Folder Watcher
-- [ ] Semantic Search
+- [x] Semantic Search
 - [ ] GUI
 - [ ] Voice Support
 

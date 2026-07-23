@@ -3,7 +3,9 @@ DesktopAI
 Main Entry Point
 """
 
+import sys
 from datetime import datetime
+from pathlib import Path
 
 from core import config
 from core.logger import get_logger
@@ -22,10 +24,20 @@ def main():
 
     logger.info("Application started.")
 
-    data_folder = config.PROJECT_ROOT / "data"
+    # Folder to scan: a path passed on the command line wins, then
+    # falls back to config.SCAN_FOLDER (which itself defaults to the
+    # bundled data/ sample folder, or DESKTOPAI_SCAN_FOLDER if set).
+    scan_folder = Path(sys.argv[1]) if len(sys.argv) > 1 else config.SCAN_FOLDER
+
+    if not scan_folder.exists():
+        print(f"\nFolder not found: {scan_folder}")
+        logger.warning(f"Scan folder does not exist: {scan_folder}")
+        return
+
+    print(f"\nScanning: {scan_folder}")
 
     scanner = FileScanner()
-    files = scanner.scan(data_folder)
+    files = scanner.scan(scan_folder)
 
     db = DatabaseManager(config.DATABASE_PATH)
     db.connect()

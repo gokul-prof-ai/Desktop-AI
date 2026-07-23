@@ -52,6 +52,19 @@ def _get_str(name: str, default: str) -> str:
     return os.environ.get(f"DESKTOPAI_{name}", default)
 
 
+def _get_path(name: str, default: Path) -> Path:
+    """
+    Read a single folder path from an environment variable named
+    DESKTOPAI_<name>, falling back to `default` if it isn't set.
+    """
+    raw_value = os.environ.get(f"DESKTOPAI_{name}")
+
+    if raw_value is None:
+        return default
+
+    return Path(raw_value)
+
+
 def _get_path_list(name: str, default: list[Path]) -> list[Path]:
     """
     Read a comma-separated list of folder paths from an environment
@@ -80,6 +93,13 @@ SCAN_MAX_DEPTH = _get_int("SCAN_MAX_DEPTH", 5)
 # in fixed-size chunks (instead of the whole file at once) keeps
 # memory usage constant even for very large files.
 HASH_CHUNK_SIZE = _get_int("HASH_CHUNK_SIZE", 8192)
+
+# The folder src/app.py scans by default. Defaults to the bundled
+# data/ sample folder (handy for a quick smoke test), but should be
+# pointed at a real folder (e.g. your Downloads or Documents) to do
+# anything useful. Override with an environment variable, or pass a
+# folder path directly on the command line: `python src/app.py <folder>`.
+SCAN_FOLDER = _get_path("SCAN_FOLDER", PROJECT_ROOT / "data")
 
 
 # ---------------------------------------------------------------
