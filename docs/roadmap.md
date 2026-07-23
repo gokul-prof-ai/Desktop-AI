@@ -41,10 +41,10 @@ This roadmap outlines the planned development phases of DesktopAI.
 
 ## Phase 5 - Document Processing
 
-- [ ] PDF reader
-- [ ] DOCX reader
-- [ ] Excel reader
-- [ ] OCR support
+- [x] PDF reader
+- [x] DOCX reader
+- [x] Excel reader
+- [x] OCR support
 
 ---
 
