@@ -99,9 +99,9 @@ This roadmap outlines the planned development phases of DesktopAI.
 
 ## Phase 12 - AI Planner
 
-- [ ] Multi-step planning
-- [ ] Task execution
-- [ ] Explain reasoning
+- [x] Multi-step planning
+- [x] Task execution
+- [x] Explain reasoning
 
 ---
 

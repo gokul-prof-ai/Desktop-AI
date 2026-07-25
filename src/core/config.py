@@ -110,6 +110,9 @@ SCAN_FOLDER = _get_path("SCAN_FOLDER", PROJECT_ROOT / "data")
 # automatically the first time the app connects to it.
 DATABASE_PATH = PROJECT_ROOT / "data" / "desktopai.db"
 
+# Where the MemoryStore database lives.
+MEMORY_PATH = PROJECT_ROOT / "data" / "memory.db"
+
 
 # ---------------------------------------------------------------
 # Logging
