@@ -57,6 +57,18 @@ class DatabaseManager:
             )
             """
         )
+        self._connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                action_type TEXT NOT NULL,
+                source_path TEXT NOT NULL,
+                target_path TEXT,
+                status TEXT NOT NULL,
+                timestamp TEXT NOT NULL
+            )
+            """
+        )
         self._connection.commit()
 
         logger.info("Connected to database: %s", self.db_path)
@@ -168,6 +180,72 @@ class DatabaseManager:
 
         connection.execute("DELETE FROM files WHERE path = ?", (str(path),))
         connection.commit()
+
+    def record_history(
+        self,
+        action_type: str,
+        source_path: Path | str,
+        target_path: Path | str | None = None,
+        status: str = "SUCCESS",
+    ) -> None:
+        """
+        Record an operation in the database history table.
+
+        Args:
+            action_type (str): Type of action (e.g. MOVE, RENAME, SCAN, UNDO).
+            source_path (Path | str): Origin path of the action.
+            target_path (Path | str | None): Destination path if applicable.
+            status (str): Outcome status (e.g. SUCCESS, FAILED).
+        """
+        connection = self._require_connection()
+
+        target_str = str(target_path) if target_path is not None else None
+        timestamp = datetime.now().strftime(DATE_FORMAT)
+
+        connection.execute(
+            """
+            INSERT INTO history (action_type, source_path, target_path, status, timestamp)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (action_type, str(source_path), target_str, status, timestamp),
+        )
+        connection.commit()
+
+    def get_history(self, limit: int = 50) -> list[dict]:
+        """
+        Retrieve recent operation history entries.
+
+        Args:
+            limit (int): Maximum number of records to return.
+
+        Returns:
+            list[dict]: List of history records ordered by newest first.
+        """
+        connection = self._require_connection()
+
+        cursor = connection.execute(
+            """
+            SELECT id, action_type, source_path, target_path, status, timestamp
+            FROM history
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+
+        entries = []
+        for row in cursor.fetchall():
+            entries.append(
+                {
+                    "id": row[0],
+                    "action_type": row[1],
+                    "source_path": row[2],
+                    "target_path": row[3],
+                    "status": row[4],
+                    "timestamp": row[5],
+                }
+            )
+        return entries
 
     def _require_connection(self) -> sqlite3.Connection:
         """

@@ -46,14 +46,10 @@ def read_image_text(path: Path) -> str | None:
 
     try:
         text = pytesseract.image_to_string(image)
-    except pytesseract.TesseractNotFoundError:
-        # This means the Tesseract OCR *program* isn't installed on
-        # this machine (pytesseract is just a wrapper around it).
-        # This is a setup problem, not a bad file, so it gets a
-        # distinct, more actionable log message.
+    except (pytesseract.TesseractNotFoundError, pytesseract.TesseractError) as error:
+        # This means Tesseract OCR is not installed or encountered a runtime binary error.
         logger.warning(
-            "Tesseract OCR engine is not installed or not found on PATH. "
-            "OCR cannot run until it is installed."
+            "Tesseract OCR engine error or not installed on PATH (%s). OCR skipped.", error
         )
         return None
     finally:

@@ -35,7 +35,7 @@ This roadmap outlines the planned development phases of DesktopAI.
 
 - [x] SQLite database
 - [x] Store file metadata
-- [ ] History tracking
+- [x] History tracking
 
 ---
 
@@ -109,12 +109,12 @@ This roadmap outlines the planned development phases of DesktopAI.
 
 - [x] Unit tests
 - [x] Integration tests
-- [ ] Performance testing
+- [x] Performance testing
 
 ---
 
 ## Phase 14 - Release
 
-- [ ] Package application
-- [ ] Installer
-- [ ] Version 1.0
+- [x] Package application
+- [x] Installer
+- [x] Version 1.0

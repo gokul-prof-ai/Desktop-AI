@@ -106,3 +106,22 @@ def test_operations_before_connect_raise_clear_error(tmp_path):
 
     with pytest.raises(DatabaseNotConnectedError):
         db.load_files()
+
+
+def test_record_and_get_history(tmp_path):
+    """Recording actions should be retrievable via get_history()."""
+    db_path = tmp_path / "test.db"
+    db = DatabaseManager(db_path)
+    db.connect()
+
+    db.record_history("MOVE", tmp_path / "a.txt", tmp_path / "b.txt", "SUCCESS")
+    db.record_history("RENAME", tmp_path / "b.txt", tmp_path / "c.txt", "SUCCESS")
+
+    history = db.get_history(limit=10)
+
+    assert len(history) == 2
+    assert history[0]["action_type"] == "RENAME"
+    assert history[0]["source_path"] == str(tmp_path / "b.txt")
+    assert history[1]["action_type"] == "MOVE"
+    assert history[1]["status"] == "SUCCESS"
+    db.close()
