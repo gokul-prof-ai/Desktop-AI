@@ -247,3 +247,4 @@ tmp/
 Thumbs.db
 Desktop.ini
 .DS_Store
+dist_setup/
