@@ -108,7 +108,7 @@ This roadmap outlines the planned development phases of DesktopAI.
 ## Phase 13 - Testing
 
 - [x] Unit tests
-- [ ] Integration tests
+- [x] Integration tests
 - [ ] Performance testing
 
 ---
