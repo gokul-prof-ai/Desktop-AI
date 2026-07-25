@@ -83,10 +83,10 @@ This roadmap outlines the planned development phases of DesktopAI.
 
 ## Phase 10 - Desktop Interface
 
-- [ ] Dashboard
-- [ ] Search page
-- [ ] AI chat
-- [ ] Settings
+- [x] Dashboard
+- [x] Search page
+- [x] AI chat
+- [x] Settings
 
 ---
 
