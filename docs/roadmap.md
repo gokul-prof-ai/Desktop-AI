@@ -92,8 +92,8 @@ This roadmap outlines the planned development phases of DesktopAI.
 
 ## Phase 11 - Memory System
 
-- [ ] Learn user preferences
-- [ ] Remember folder choices
+- [x] Learn user preferences
+- [x] Remember folder choices
 
 ---
 
