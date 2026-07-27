@@ -1,9 +1,10 @@
 """
 DesktopAI
-Modern Desktop GUI
+Modern Desktop GUI (Enhanced with Pre-flight Check & UI Capping)
 """
 import sys
 import time
+import requests
 from pathlib import Path
 from typing import Optional
 
@@ -21,6 +22,7 @@ from core.logger import get_logger
 from organizer.auto_organizer import AutoOrganizer, OrganizationPlan
 
 logger = get_logger("gui")
+MAX_PREVIEW_ROWS = 500 # Prevent GUI freezing on massive folders
 
 DARK_THEME = """
 QMainWindow, QWidget { background-color: #1e1e2e; color: #cdd6f4; font-family: 'Segoe UI', sans-serif; font-size: 14px; }
@@ -50,42 +52,28 @@ class OrganizeWorker(QThread):
     progress = Signal(int, int, str)
     finished_plan = Signal(object)
     failed = Signal(str)
-
     def __init__(self, organizer: AutoOrganizer, folder: Path):
         super().__init__()
-        self.organizer = organizer
-        self.folder = folder
-
+        self.organizer, self.folder = organizer, folder
     def run(self):
         try:
-            plan = self.organizer.analyze_and_plan(
-                self.folder, 
-                progress_callback=lambda curr, total, msg: self.progress.emit(curr, total, msg)
-            )
+            plan = self.organizer.analyze_and_plan(self.folder, progress_callback=lambda c, t, m: self.progress.emit(c, t, m))
             self.finished_plan.emit(plan)
         except Exception as e:
-            logger.exception("Organization planning failed")
             self.failed.emit(str(e))
 
 class ApplyWorker(QThread):
     progress = Signal(int, int, str)
     finished = Signal(list)
     failed = Signal(str)
-
     def __init__(self, organizer: AutoOrganizer, plan: OrganizationPlan):
         super().__init__()
-        self.organizer = organizer
-        self.plan = plan
-
+        self.organizer, self.plan = organizer, plan
     def run(self):
         try:
-            actions = self.organizer.apply_plan(
-                self.plan,
-                progress_callback=lambda curr, total, msg: self.progress.emit(curr, total, msg)
-            )
+            actions = self.organizer.apply_plan(self.plan, progress_callback=lambda c, t, m: self.progress.emit(c, t, m))
             self.finished.emit(actions)
         except Exception as e:
-            logger.exception("Apply failed")
             self.failed.emit(str(e))
 
 class MainWindow(QMainWindow):
@@ -94,12 +82,23 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("DesktopAI Organizer")
         self.resize(1100, 750)
         self.setStyleSheet(DARK_THEME)
-        
         self.organizer = AutoOrganizer()
         self.current_plan: Optional[OrganizationPlan] = None
-        
         self._setup_ui()
         self._setup_drag_drop()
+        self._check_ollama_status() # Pre-flight check
+
+    def _check_ollama_status(self):
+        """Checks if Ollama is running before the user starts."""
+        try:
+            response = requests.get(config.OLLAMA_HOST, timeout=3)
+            if response.status_code == 200:
+                self._log("✅ Ollama is running and ready.", "success")
+            else:
+                self._log("⚠️ Ollama is reachable but returned an error.", "warning")
+        except requests.exceptions.ConnectionError:
+            self._log("❌ Ollama is NOT running. Please run 'ollama serve' in a terminal.", "error")
+            QMessageBox.warning(self, "Ollama Not Found", "Ollama is not running. Please open a terminal and run 'ollama serve' before analyzing files.")
 
     def _setup_ui(self):
         central_widget = QWidget()
@@ -123,11 +122,9 @@ class MainWindow(QMainWindow):
         self.drop_zone.setMinimumHeight(100)
         drop_layout = QVBoxLayout(self.drop_zone)
         drop_layout.setAlignment(Qt.AlignCenter)
-        
         self.folder_label = QLabel("Drag & Drop a folder here, or click to select")
         self.folder_label.setStyleSheet("font-size: 16px; color: #a6adc8;")
         drop_layout.addWidget(self.folder_label)
-        
         self.folder_path_display = QLabel("No folder selected")
         self.folder_path_display.setStyleSheet("color: #89b4fa; font-weight: bold; font-size: 15px;")
         drop_layout.addWidget(self.folder_path_display)
@@ -137,7 +134,6 @@ class MainWindow(QMainWindow):
         self.progress_bar = QProgressBar()
         self.progress_bar.setVisible(False)
         self.progress_bar.setTextVisible(True)
-        self.progress_bar.setFormat("%p% - %m")
         main_layout.addWidget(self.progress_bar)
 
         self.table = QTableWidget(0, 5)
@@ -155,33 +151,26 @@ class MainWindow(QMainWindow):
         log_label = QLabel("Activity Log")
         log_label.setStyleSheet("font-weight: bold; color: #a6adc8; font-size: 13px;")
         main_layout.addWidget(log_label)
-        
         self.log_text = QTextEdit()
         self.log_text.setReadOnly(True)
         self.log_text.setMaximumHeight(130)
         main_layout.addWidget(self.log_text)
 
-        # Action Buttons (Including new Exit button)
         btn_layout = QHBoxLayout()
-        
         self.btn_analyze = QPushButton("🔍 Analyze Folder")
         self.btn_analyze.clicked.connect(self._start_analysis)
         self.btn_analyze.setEnabled(False)
-        
         self.btn_apply = QPushButton("✅ Apply Organization")
         self.btn_apply.setObjectName("success")
         self.btn_apply.clicked.connect(self._start_apply)
         self.btn_apply.setEnabled(False)
-        
         self.btn_undo = QPushButton("↩️ Undo Last")
         self.btn_undo.clicked.connect(self._undo_last)
         self.btn_undo.setEnabled(False)
-        
         self.btn_cancel = QPushButton("⏹️ Cancel")
         self.btn_cancel.setObjectName("danger")
         self.btn_cancel.clicked.connect(self._cancel_operation)
         self.btn_cancel.setEnabled(False)
-        
         self.btn_exit = QPushButton("🚪 Exit App")
         self.btn_exit.setObjectName("exit")
         self.btn_exit.clicked.connect(self.close)
@@ -198,25 +187,17 @@ class MainWindow(QMainWindow):
         self.drop_zone.setAcceptDrops(True)
         self.drop_zone.dragEnterEvent = self._drag_enter_event
         self.drop_zone.dropEvent = self._drop_event
-
     def _drag_enter_event(self, event: QDragEnterEvent):
-        if event.mimeData().hasUrls():
-            event.acceptProposedAction()
-
+        if event.mimeData().hasUrls(): event.acceptProposedAction()
     def _drop_event(self, event: QDropEvent):
         urls = event.mimeData().urls()
         if urls:
             path = Path(urls[0].toLocalFile())
-            if path.is_dir():
-                self._set_folder(path)
-            else:
-                self._log("Please drop a folder, not a file.", "warning")
-
+            if path.is_dir(): self._set_folder(path)
+            else: self._log("Please drop a folder, not a file.", "warning")
     def _select_folder(self):
         folder = QFileDialog.getExistingDirectory(self, "Select Folder to Organize")
-        if folder:
-            self._set_folder(Path(folder))
-
+        if folder: self._set_folder(Path(folder))
     def _set_folder(self, path: Path):
         self.target_folder = path
         self.folder_path_display.setText(str(path))
@@ -232,14 +213,11 @@ class MainWindow(QMainWindow):
 
     def _start_analysis(self):
         if not hasattr(self, 'target_folder') or not self.target_folder.exists():
-            self._log("Please select a valid folder first.", "warning")
-            return
-
+            self._log("Please select a valid folder first.", "warning"); return
         self._toggle_ui_state(analyzing=True)
         self.table.setRowCount(0)
         self.current_plan = None
         self.btn_apply.setEnabled(False)
-        
         self.worker = OrganizeWorker(self.organizer, self.target_folder)
         self.worker.progress.connect(self._on_analyze_progress)
         self.worker.finished_plan.connect(self._on_analyze_finished)
@@ -256,28 +234,25 @@ class MainWindow(QMainWindow):
         self._toggle_ui_state(analyzing=False)
         self.progress_bar.setVisible(False)
         self.current_plan = plan
+        self._log(f"Analysis complete. Found {plan.summary['categorized']} files.", "success")
         
-        self._log(f"Analysis complete. Found {plan.summary['categorized']} files to organize.", "success")
-        
-        self.table.setRowCount(len(plan.actions))
-        for row, action in enumerate(plan.actions):
+        # Cap preview to prevent GUI freezing
+        preview_actions = plan.actions[:MAX_PREVIEW_ROWS]
+        self.table.setRowCount(len(preview_actions))
+        for row, action in enumerate(preview_actions):
             self.table.setItem(row, 0, QTableWidgetItem(action.source.name))
             self.table.setItem(row, 1, QTableWidgetItem(str(action.source.parent)))
             self.table.setItem(row, 2, QTableWidgetItem(action.category))
-            
             conf_item = QTableWidgetItem(f"{action.confidence:.0%}")
-            if action.confidence > 0.8:
-                conf_item.setForeground(QColor("#a6e3a1"))
-            elif action.confidence > 0.5:
-                conf_item.setForeground(QColor("#f9e2af"))
-            else:
-                conf_item.setForeground(QColor("#f38ba8"))
+            conf_item.setForeground(QColor("#a6e3a1" if action.confidence > 0.8 else "#f9e2af" if action.confidence > 0.5 else "#f38ba8"))
             self.table.setItem(row, 3, conf_item)
-            
             self.table.setItem(row, 4, QTableWidgetItem(action.reason))
             
+        if len(plan.actions) > MAX_PREVIEW_ROWS:
+            self._log(f"⚠️ Showing first {MAX_PREVIEW_ROWS} files in preview to keep UI fast. All {len(plan.actions)} files will be processed.", "warning")
+            
         self.btn_apply.setEnabled(True)
-        self._log("Review suggestions above. Click 'Apply Organization' to proceed.", "info")
+        self._log("Review suggestions above. Click 'Apply' to proceed.", "info")
 
     def _on_analyze_failed(self, error: str):
         self._toggle_ui_state(analyzing=False)
@@ -286,20 +261,11 @@ class MainWindow(QMainWindow):
         QMessageBox.critical(self, "Analysis Failed", error)
 
     def _start_apply(self):
-        if not self.current_plan or not self.current_plan.actions:
-            return
-            
-        reply = QMessageBox.question(
-            self, "Confirm Organization", 
-            f"Are you sure you want to move {len(self.current_plan.actions)} files?\nThis action can be undone.",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
-        )
-        if reply == QMessageBox.No:
-            return
-
+        if not self.current_plan or not self.current_plan.actions: return
+        reply = QMessageBox.question(self, "Confirm", f"Move {len(self.current_plan.actions)} files?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if reply == QMessageBox.No: return
         self._toggle_ui_state(applying=True)
         self.btn_undo.setEnabled(False)
-        
         self.apply_worker = ApplyWorker(self.organizer, self.current_plan)
         self.apply_worker.progress.connect(self._on_apply_progress)
         self.apply_worker.finished.connect(self._on_apply_finished)
@@ -316,12 +282,9 @@ class MainWindow(QMainWindow):
         self._toggle_ui_state(applying=False)
         self.progress_bar.setVisible(False)
         self.btn_undo.setEnabled(True)
-        
         moved = sum(1 for a in actions if a.status == "moved")
-        skipped = sum(1 for a in actions if a.status == "skipped")
         failed = sum(1 for a in actions if a.status == "failed")
-        
-        self._log(f"Organization complete: {moved} moved, {skipped} skipped, {failed} failed.", "success")
+        self._log(f"Done: {moved} moved, {failed} failed.", "success")
         self.btn_apply.setEnabled(False)
 
     def _on_apply_failed(self, error: str):
@@ -331,27 +294,21 @@ class MainWindow(QMainWindow):
         QMessageBox.critical(self, "Apply Failed", error)
 
     def _undo_last(self):
-        self._log("Undoing last organization...", "info")
+        self._log("Undoing...", "info")
         undone = self.organizer.undo_last()
         if undone:
-            self._log(f"Successfully undone {len(undone)} file moves.", "success")
+            self._log(f"Undone {len(undone)} moves.", "success")
             self.btn_undo.setEnabled(False)
             self.btn_apply.setEnabled(True)
-        else:
-            self._log("Nothing to undo.", "warning")
+        else: self._log("Nothing to undo.", "warning")
 
     def _cancel_operation(self):
-        self._log("Cancelling operation...", "warning")
+        self._log("Cancelling...", "warning")
         self.organizer.cancel()
-        if hasattr(self, 'worker') and self.worker.isRunning():
-            self.worker.quit()
-            self.worker.wait()
-        if hasattr(self, 'apply_worker') and self.apply_worker.isRunning():
-            self.apply_worker.quit()
-            self.apply_worker.wait()
+        if hasattr(self, 'worker') and self.worker.isRunning(): self.worker.quit(); self.worker.wait()
+        if hasattr(self, 'apply_worker') and self.apply_worker.isRunning(): self.apply_worker.quit(); self.apply_worker.wait()
         self._toggle_ui_state(analyzing=False, applying=False)
         self.progress_bar.setVisible(False)
-        self._log("Operation cancelled.", "warning")
 
     def _toggle_ui_state(self, analyzing: bool = False, applying: bool = False):
         is_busy = analyzing or applying
@@ -362,12 +319,8 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event):
         self.organizer.cancel()
-        if hasattr(self, 'worker') and self.worker.isRunning():
-            self.worker.quit()
-            self.worker.wait()
-        if hasattr(self, 'apply_worker') and self.apply_worker.isRunning():
-            self.apply_worker.quit()
-            self.apply_worker.wait()
+        if hasattr(self, 'worker') and self.worker.isRunning(): self.worker.quit(); self.worker.wait()
+        if hasattr(self, 'apply_worker') and self.apply_worker.isRunning(): self.apply_worker.quit(); self.apply_worker.wait()
         event.accept()
 
 if __name__ == "__main__":
