@@ -1,120 +1,42 @@
-# DesktopAI Development Roadmap
+# Project Roadmap
 
-This roadmap outlines the planned development phases of DesktopAI.
+## Current Status
 
----
+✅ Phase 9 Complete: Semantic Search
 
-## Phase 1 - Planning
+- FAISS vector search implemented
+- Natural language queries working
+- 88 unit tests passing
 
-- [x] Create GitHub repository
-- [x] Project structure
-- [x] Documentation
-- [x] Define coding standards
+## v1.0 - MVP (Target: Q4 2026)
 
----
+- [x] File Scanner
+- [x] File Organization
+- [x] AI Classification
+- [x] Semantic Search
+- [ ] GUI (PySide6)
+- [ ] User guide
 
-## Phase 2 - Development Environment
+## v1.1 - Polish (Q1 2027)
 
-- [x] Configure Python environment
-- [x] Install dependencies
-- [x] Configure logging
-- [x] Configuration management
+- Auto-organize from watcher suggestions
+- Keyword search
+- Performance optimizations
+- Native Windows installer
+- Documentation complete
 
----
+## v2.0 - Advanced (Q2-Q3 2027)
 
-## Phase 3 - File Scanner
+- Voice commands
+- Multi-platform support (macOS, Linux)
+- Cloud sync (optional)
+- Plugin system
+- Custom AI model support
 
-- [x] Folder scanning
-- [x] Metadata extraction
-- [x] File hashing
-- [x] File type detection
+## v3.0 - Vision (2028+)
 
----
-
-## Phase 4 - Database
-
-- [x] SQLite database
-- [x] Store file metadata
-- [x] History tracking
-
----
-
-## Phase 5 - Document Processing
-
-- [x] PDF reader
-- [x] DOCX reader
-- [x] Excel reader
-- [x] OCR support
-
----
-
-## Phase 6 - Local AI
-
-- [x] Ollama integration
-- [x] AI file classification
-- [x] AI summaries
-- [x] AI recommendations
-
----
-
-## Phase 7 - Organizer
-
-- [x] Preview changes
-- [x] File organization
-- [x] Undo system
-
----
-
-## Phase 8 - Folder Watcher
-
-- [x] Monitor Downloads
-- [x] Monitor Desktop
-- [x] Real-time suggestions
-
----
-
-## Phase 9 - Semantic Search
-
-- [x] Embeddings
-- [x] FAISS integration
-- [x] Natural language search
-
----
-
-## Phase 10 - Desktop Interface
-
-- [x] Dashboard
-- [x] Search page
-- [x] AI chat
-- [x] Settings
-
----
-
-## Phase 11 - Memory System
-
-- [x] Learn user preferences
-- [x] Remember folder choices
-
----
-
-## Phase 12 - AI Planner
-
-- [x] Multi-step planning
-- [x] Task execution
-- [x] Explain reasoning
-
----
-
-## Phase 13 - Testing
-
-- [x] Unit tests
-- [x] Integration tests
-- [x] Performance testing
-
----
-
-## Phase 14 - Release
-
-- [x] Package application
-- [x] Installer
-- [x] Version 1.0
+- AI OS Companion features
+- Cross-device sync
+- Team collaboration
+- Advanced automation
+- Mobile companion app

@@ -1,118 +1,98 @@
 # DesktopAI
 
-> Offline-first AI Desktop Assistant for Windows
+> Offline-first AI Desktop Assistant for Intelligent File Organization
 
-DesktopAI is an intelligent desktop assistant designed to organize, understand, search, and manage files locally using AI.
+[![Python 3.13+](https://img.shields.io/badge/Python-3.13%2B-blue)]()
+[![Tests](https://img.shields.io/badge/Tests-88%2F88-green)]()
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)]()
 
-Unlike cloud-based assistants, DesktopAI runs primarily on your computer, ensuring privacy while providing intelligent automation.
+DesktopAI is an intelligent offline desktop assistant that organizes, understands, and searches your files using local AI.
 
----
+**[📖 Full Documentation](docs/00-TABLE_OF_CONTENTS.md)** | **[🚀 Quick Start](QUICK_START.md)** | **[🤝 Contributing](CONTRIBUTING.md)**
 
-## Vision
+## ⚡ Quick Demo
 
-DesktopAI is more than a file organizer.
+```bash
+# 1. Install (2 min)
+git clone https://github.com/gokul-prof-ai/Desktop-AI.git
+cd Desktop-AI && pip install -r requirements.txt
 
-It is designed to become an AI Operating System Companion capable of:
+# 2. Run (1 min)
+python src/app.py C:\Users\YourName\Downloads
 
-- Organizing files intelligently
-- Understanding documents
-- Performing semantic search
-- Learning user preferences
-- Automating repetitive tasks
-- Assisting with desktop productivity
+# 3. Search (Instant)
+python src/search_app.py
+> "Find all budget spreadsheets from 2024"
+✓ Results: budget-2024-q1.xlsx, budget-2024-q2.xlsx, ...
+```
 
----
+## Features
 
-## Current Capabilities
+### 🔍 Smart File Organization
 
-DesktopAI currently includes:
+- AI-powered file classification
+- Preview before changes
+- Full undo support
+- Intelligent folder recommendations
 
-- Recursive folder scanning with a configurable depth limit
-- File metadata extraction
-- SHA-256 file hashing
-- File type detection from file content
-- SQLite storage for scanned file metadata
-- Text extraction from PDF, DOCX, and Excel files, plus OCR for images
-- Local AI file classification, summarization, and folder recommendations (via Ollama)
-- File organization with a mandatory preview step and full undo support
-- Offline-first folder watching (Downloads/Desktop) with real-time AI suggestions
-- Semantic (natural-language) search over scanned files via local embeddings (`all-minilm`) and FAISS
-- Scanning a real folder: pass a path to `python src/app.py <folder>`, or set `DESKTOPAI_SCAN_FOLDER`
-- Centralized logging and configuration
-- Unit tests covering every module above (88 tests)
+### 🧠 Semantic Search
 
----
+- Natural language queries
+- Local embeddings (privacy-first)
+- Sub-200ms search on 10K files
 
-## Planned Features
+### 📝 Document Understanding
 
-### File Management
+- PDF, DOCX, Excel extraction
+- OCR for images
+- Automatic summarization
 
-- Automatic categorization
-- Duplicate detection
-- Large file discovery
-- Empty folder cleanup
+### 👀 Real-Time Monitoring
 
-### AI
-
-- Natural language commands
-- Auto-organize (move files) straight from watcher suggestions, not just print them
-
-### Search
-
-- Keyword search
-- Content search
-- Smart filters
-
-### Interface
-
-- Desktop GUI (PySide6)
-- Voice support
-
----
+- Watch Downloads/Desktop folders
+- Get AI suggestions instantly
+- Auto-organize on demand (v2.0)
 
 ## Tech Stack
 
 - Python 3.13
-- SQLite
-- pytest
-- filetype
-- Watchdog
-- Ollama
-- PyMuPDF (PDF text extraction)
-- python-docx (Word text extraction)
-- openpyxl (Excel text extraction)
-- pytesseract (OCR for images)
-- FAISS + NumPy (semantic search)
-- PySide6 (planned, GUI)
+- SQLite + FAISS
+- Ollama (local LLM)
+- PySide6 (GUI, planned)
 
----
+## Installation
+
+See [Installation Guide](docs/01-INSTALLATION.md) for detailed setup.
+
+```bash
+pip install -r requirements.txt
+python src/app.py <folder>
+```
+
+## Usage
+
+- **User Guide:** [docs/03-USER_GUIDE.md](docs/03-USER_GUIDE.md)
+- **Configuration:** [docs/10-CONFIGURATION.md](docs/10-CONFIGURATION.md)
+- **Troubleshooting:** [docs/11-TROUBLESHOOTING.md](docs/11-TROUBLESHOOTING.md)
+
+## Development
+
+- **Setup:** [docs/07-DEVELOPMENT.md](docs/07-DEVELOPMENT.md)
+- **Architecture:** [docs/04-ARCHITECTURE.md](docs/04-ARCHITECTURE.md)
+- **Contributing:** [CONTRIBUTING.md](CONTRIBUTING.md)
+- **Testing:** [docs/09-TESTING.md](docs/09-TESTING.md)
 
 ## Project Status
 
-Phase 9 - Semantic Search complete (see [docs/roadmap.md](docs/roadmap.md) for the full phase breakdown)
+Phase 9 Complete: Semantic Search ✅
+Next: GUI Application (v1.0)
 
----
-
-## Roadmap
-
-- [x] Project Planning
-- [x] File Scanner
-- [x] File Hashing
-- [x] File Type Detection
-- [x] SQLite Database Foundation
-- [x] Logging
-- [x] Unit Tests
-- [x] Document Readers (PDF, DOCX, Excel, OCR)
-- [x] Configuration Management
-- [x] AI Integration (classification, summarization, recommendations)
-- [x] Organizer Engine (preview, apply, undo)
-- [x] Folder Watcher
-- [x] Semantic Search
-- [ ] GUI
-- [ ] Voice Support
-
----
+[Full Roadmap](docs/13-ROADMAP.md)
 
 ## License
 
-MIT License
+MIT License © 2024 Gokul
+
+---
+
+**Questions?** Check [Troubleshooting](docs/11-TROUBLESHOOTING.md) or [open an issue](https://github.com/gokul-prof-ai/Desktop-AI/issues)

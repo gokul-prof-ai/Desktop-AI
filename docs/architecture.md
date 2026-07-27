@@ -1,127 +1,54 @@
-# DesktopAI Architecture
+# Architecture Overview
 
-## High-Level Architecture
+## System Layers (Detailed)
 
-```
-                         User
+### Layer 1: User Interface
 
-                           │
+- CLI (current)
+- GUI (PySide6, planned)
+- Web dashboard (future)
 
-                  DesktopAI Interface
+### Layer 2: Application Core
 
-                           │
+- Scanner Module
+- Organizer Module
+- Watcher Module
+- Search Module
 
-                    AI Planner / Brain
+### Layer 3: AI Services
 
-                           │
+- Ollama Integration
+- Classification Engine
+- Summarization Engine
+- Recommendation Engine
 
-      ┌────────────────────┼────────────────────┐
+### Layer 4: Data Management
 
-      │                    │                    │
+- SQLite Database
+- FAISS Vector Store
+- File System
+- Metadata Cache
 
- File Scanner        Search Engine       Organizer
+## Data Flow Diagrams
 
-      │                    │                    │
+[Add mermaid/ASCII diagrams for:]
 
-      └────────────────────┼────────────────────┘
+- Scanning → Classification → Organization
+- Search Query → Embedding → FAISS → Results
+- File Watch → AI Analysis → Suggestions
 
-                           │
+## Module Dependencies
 
-                    SQLite Database
-
-                           │
-
-      ┌────────────────────┼────────────────────┐
-
-      │                    │                    │
-
- Document Reader      AI Models         Memory System
-
-      │                    │                    │
-
- PDF / DOCX / XLSX     Ollama         User Preferences
-```
-
----
-
-## Module Responsibilities
-
-### Scanner
-
-Scans folders and extracts metadata from files.
-
-### Database
-
-Stores metadata, history, settings, and AI-generated information.
-
-### AI Engine
-
-Uses local language models to classify files, summarize content, and suggest actions.
-
-### Organizer
-
-Moves, renames, archives, and manages files after user approval.
-
-### Search
-
-Provides keyword and semantic search across indexed files.
-
-### Memory
-
-Learns user preferences and improves future recommendations.
-
-### GUI
-
-Provides a desktop interface for interacting with DesktopAI.
-
----
-
-## Data Flow
-
-```
-User Request
-
+\`\`\`
+Scanner → Database
 ↓
-
-Scan Files
-
+Organizer → AI Services
 ↓
+Watcher → Notification System
+\`\`\`
 
-Extract Metadata
+## Extension Points
 
-↓
-
-Read Documents
-
-↓
-
-AI Analysis
-
-↓
-
-Generate Suggestions
-
-↓
-
-User Approval
-
-↓
-
-Execute Actions
-
-↓
-
-Save History
-```
-
----
-
-## Core Design Principles
-
-- Offline-first
-- Privacy-first
-- Modular architecture
-- Safe automation
-- User approval before destructive actions
-- Explainable AI decisions
-- Extensible design
+- How to add new file readers
+- How to add new AI models
+- How to add new search strategies
