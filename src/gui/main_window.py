@@ -1,503 +1,378 @@
 """
 DesktopAI
-Desktop GUI (Phase 10)
-
-A PySide6 desktop interface with four tabs:
-- Dashboard: scan a folder and see what was found
-- Search:    build the semantic search index and search it
-- AI Chat:   talk to the local Ollama model directly
-- Settings:  see the active configuration at a glance
-
-Every operation that could take a while (Ollama calls, FAISS
-indexing) runs on a background QThread so the window never
-freezes — important on the low-end laptop this is built for.
-Qt widgets must only be touched from the main thread, so each
-worker below only ever emits a signal with a plain result; the
-tab that owns it applies that result to the UI when the signal
-fires.
+Modern Desktop GUI
 """
-
+import sys
+import time
 from pathlib import Path
+from typing import Optional
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtGui import QDragEnterEvent, QDropEvent, QColor
 from PySide6.QtWidgets import (
-    QApplication,
-    QFileDialog,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QListWidget,
-    QMainWindow,
-    QMessageBox,
-    QPlainTextEdit,
-    QPushButton,
-    QTableWidget,
-    QTableWidgetItem,
-    QTabWidget,
-    QVBoxLayout,
-    QWidget,
+    QApplication, QFileDialog, QHBoxLayout, QLabel, 
+    QMainWindow, QMessageBox, QProgressBar, QPushButton, 
+    QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget, 
+    QHeaderView, QFrame, QTextEdit
 )
 
-from ai.ollama_client import generate_response
 from core import config
 from core.logger import get_logger
-from database.database import DatabaseManager
-from scanner.scanner import FileScanner
-from search.search_engine import build_search_index, semantic_search
+from organizer.auto_organizer import AutoOrganizer, OrganizationPlan
 
 logger = get_logger("gui")
 
+DARK_THEME = """
+QMainWindow, QWidget { background-color: #1e1e2e; color: #cdd6f4; font-family: 'Segoe UI', sans-serif; font-size: 14px; }
+QPushButton { background-color: #89b4fa; color: #1e1e2e; border: none; border-radius: 6px; padding: 10px 20px; font-weight: bold; }
+QPushButton:hover { background-color: #b4befe; }
+QPushButton:disabled { background-color: #45475a; color: #6c7086; }
+QPushButton#danger { background-color: #f38ba8; color: #1e1e2e; }
+QPushButton#danger:hover { background-color: #eba0ac; }
+QPushButton#success { background-color: #a6e3a1; color: #1e1e2e; }
+QPushButton#success:hover { background-color: #94e2d5; }
+QPushButton#exit { background-color: #45475a; color: #cdd6f4; }
+QPushButton#exit:hover { background-color: #585b70; }
+QTableWidget { background-color: #181825; border: 1px solid #313244; border-radius: 6px; gridline-color: #313244; }
+QTableWidget::item { padding: 8px; border-bottom: 1px solid #313244; }
+QTableWidget::item:selected { background-color: #45475a; color: #cdd6f4; }
+QHeaderView::section { background-color: #11111b; color: #a6adc8; padding: 10px; border: none; border-bottom: 2px solid #89b4fa; font-weight: bold; }
+QProgressBar { border: 1px solid #313244; border-radius: 6px; text-align: center; background-color: #181825; color: #cdd6f4; height: 20px; }
+QProgressBar::chunk { background-color: #89b4fa; border-radius: 5px; }
+QTextEdit { background-color: #181825; border: 1px solid #313244; border-radius: 6px; padding: 8px; }
+QLabel#title { font-size: 24px; font-weight: bold; color: #89b4fa; }
+QLabel#subtitle { font-size: 12px; color: #a6adc8; }
+QFrame#drop_zone { background-color: #181825; border: 2px dashed #45475a; border-radius: 8px; }
+QFrame#drop_zone:hover { border-color: #89b4fa; background-color: #1e1e2e; }
+"""
 
-# ---------------------------------------------------------------
-# Background workers
-# ---------------------------------------------------------------
-
-
-class ScanWorker(QThread):
-    """Scans a folder and saves the results to the database."""
-
-    finished = Signal(list)  # list[FileInfo]
+class OrganizeWorker(QThread):
+    progress = Signal(int, int, str)
+    finished_plan = Signal(object)
     failed = Signal(str)
 
-    def __init__(self, folder: Path):
+    def __init__(self, organizer: AutoOrganizer, folder: Path):
         super().__init__()
+        self.organizer = organizer
         self.folder = folder
 
     def run(self):
         try:
-            scanner = FileScanner()
-            files = scanner.scan(self.folder)
+            plan = self.organizer.analyze_and_plan(
+                self.folder, 
+                progress_callback=lambda curr, total, msg: self.progress.emit(curr, total, msg)
+            )
+            self.finished_plan.emit(plan)
+        except Exception as e:
+            logger.exception("Organization planning failed")
+            self.failed.emit(str(e))
 
-            db = DatabaseManager(config.DATABASE_PATH)
-            db.connect()
-            for file_info in files:
-                db.save_file(file_info)
-            db.close()
-
-            self.finished.emit(files)
-        except Exception as error:  # noqa: BLE001 - surface any failure to the UI
-            logger.exception("Scan failed")
-            self.failed.emit(str(error))
-
-
-class BuildIndexWorker(QThread):
-    """Builds the semantic search index from whatever's in the database."""
-
-    finished = Signal(int)
+class ApplyWorker(QThread):
+    progress = Signal(int, int, str)
+    finished = Signal(list)
     failed = Signal(str)
+
+    def __init__(self, organizer: AutoOrganizer, plan: OrganizationPlan):
+        super().__init__()
+        self.organizer = organizer
+        self.plan = plan
 
     def run(self):
         try:
-            count = build_search_index()
-            self.finished.emit(count)
-        except Exception as error:  # noqa: BLE001
-            logger.exception("Index build failed")
-            self.failed.emit(str(error))
-
-
-class SearchWorker(QThread):
-    """Runs one semantic search query."""
-
-    finished = Signal(list)  # list[SearchResult]
-    failed = Signal(str)
-
-    def __init__(self, query: str):
-        super().__init__()
-        self.query = query
-
-    def run(self):
-        try:
-            results = semantic_search(self.query)
-            self.finished.emit(results)
-        except Exception as error:  # noqa: BLE001
-            logger.exception("Search failed")
-            self.failed.emit(str(error))
-
-
-class ChatWorker(QThread):
-    """Sends one prompt to the local Ollama model."""
-
-    finished = Signal(str)  # response text, "" if the AI was unavailable
-    failed = Signal(str)
-
-    def __init__(self, prompt: str):
-        super().__init__()
-        self.prompt = prompt
-
-    def run(self):
-        try:
-            response = generate_response(self.prompt)
-            self.finished.emit(response or "")
-        except Exception as error:  # noqa: BLE001
-            logger.exception("Chat request failed")
-            self.failed.emit(str(error))
-
-
-# ---------------------------------------------------------------
-# Dashboard tab
-# ---------------------------------------------------------------
-
-
-class DashboardTab(QWidget):
-    """Scan a folder and see what DesktopAI found in it."""
-
-    def __init__(self):
-        super().__init__()
-        self._worker: ScanWorker | None = None
-        self._selected_folder = config.SCAN_FOLDER
-
-        layout = QVBoxLayout(self)
-
-        self.folder_label = QLabel(f"Folder to scan: {self._selected_folder}")
-        layout.addWidget(self.folder_label)
-
-        button_row = QHBoxLayout()
-        choose_button = QPushButton("Choose Folder...")
-        choose_button.clicked.connect(self._choose_folder)
-        button_row.addWidget(choose_button)
-
-        self.scan_button = QPushButton("Scan Now")
-        self.scan_button.clicked.connect(self._start_scan)
-        button_row.addWidget(self.scan_button)
-        layout.addLayout(button_row)
-
-        self.status_label = QLabel("Ready.")
-        layout.addWidget(self.status_label)
-
-        self.table = QTableWidget(0, 3)
-        self.table.setHorizontalHeaderLabels(["Name", "Size (bytes)", "Type"])
-        layout.addWidget(self.table)
-
-        self._load_existing_files()
-
-    def _choose_folder(self):
-        folder = QFileDialog.getExistingDirectory(self, "Choose a folder to scan")
-        if folder:
-            self._selected_folder = Path(folder)
-            self.folder_label.setText(f"Folder to scan: {self._selected_folder}")
-
-    def _start_scan(self):
-        if self._worker is not None and self._worker.isRunning():
-            return  # a scan is already in progress
-
-        self.status_label.setText(f"Scanning {self._selected_folder} ...")
-        self.scan_button.setEnabled(False)
-
-        self._worker = ScanWorker(self._selected_folder)
-        self._worker.finished.connect(self._on_scan_finished)
-        self._worker.failed.connect(self._on_scan_failed)
-        self._worker.start()
-
-    def _on_scan_finished(self, files):
-        self.scan_button.setEnabled(True)
-        self.status_label.setText(f"Found {len(files)} file(s). Saved to database.")
-        self._populate_table(files)
-
-    def _on_scan_failed(self, message: str):
-        self.scan_button.setEnabled(True)
-        self.status_label.setText("Scan failed.")
-        QMessageBox.warning(self, "Scan Failed", message)
-
-    def _load_existing_files(self):
-        """Show whatever's already in the database on startup."""
-        try:
-            db = DatabaseManager(config.DATABASE_PATH)
-            db.connect()
-            files = db.load_files()
-            db.close()
-            self._populate_table(files)
-            self.status_label.setText(f"{len(files)} file(s) previously scanned.")
-        except Exception:  # noqa: BLE001 - a missing/empty DB is fine on first run
-            logger.info("No existing database to load yet.")
-
-    def _populate_table(self, files):
-        self.table.setRowCount(len(files))
-        for row, file_info in enumerate(files):
-            self.table.setItem(row, 0, QTableWidgetItem(file_info.name))
-            self.table.setItem(row, 1, QTableWidgetItem(str(file_info.size)))
-            self.table.setItem(
-                row, 2, QTableWidgetItem(file_info.detected_type or "unknown")
+            actions = self.organizer.apply_plan(
+                self.plan,
+                progress_callback=lambda curr, total, msg: self.progress.emit(curr, total, msg)
             )
-
-
-# ---------------------------------------------------------------
-# Search tab
-# ---------------------------------------------------------------
-
-
-class SearchTab(QWidget):
-    """Build the semantic search index and search it in plain language."""
-
-    def __init__(self):
-        super().__init__()
-        self._build_worker: BuildIndexWorker | None = None
-        self._search_worker: SearchWorker | None = None
-
-        layout = QVBoxLayout(self)
-
-        self.build_button = QPushButton("Build / Rebuild Search Index")
-        self.build_button.clicked.connect(self._start_build)
-        layout.addWidget(self.build_button)
-
-        self.status_label = QLabel(
-            "Index not built yet this session. Scan some files first "
-            "(Dashboard tab), then build the index."
-        )
-        layout.addWidget(self.status_label)
-
-        search_row = QHBoxLayout()
-        self.query_input = QLineEdit()
-        self.query_input.setPlaceholderText("e.g. tax documents from last year")
-        self.query_input.returnPressed.connect(self._start_search)
-        search_row.addWidget(self.query_input)
-
-        self.search_button = QPushButton("Search")
-        self.search_button.clicked.connect(self._start_search)
-        search_row.addWidget(self.search_button)
-        layout.addLayout(search_row)
-
-        self.results_list = QListWidget()
-        layout.addWidget(self.results_list)
-
-    def _start_build(self):
-        if self._build_worker is not None and self._build_worker.isRunning():
-            return
-
-        self.status_label.setText(
-            "Building search index (calls the local AI once per file)..."
-        )
-        self.build_button.setEnabled(False)
-
-        self._build_worker = BuildIndexWorker()
-        self._build_worker.finished.connect(self._on_build_finished)
-        self._build_worker.failed.connect(self._on_build_failed)
-        self._build_worker.start()
-
-    def _on_build_finished(self, count: int):
-        self.build_button.setEnabled(True)
-        if count == 0:
-            self.status_label.setText(
-                "Nothing was indexed. Make sure Ollama is running with the "
-                f"'{config.EMBEDDING_MODEL}' model pulled, and that you've "
-                "scanned files with real text content."
-            )
-        else:
-            self.status_label.setText(f"Indexed {count} file(s). Ready to search.")
-
-    def _on_build_failed(self, message: str):
-        self.build_button.setEnabled(True)
-        self.status_label.setText("Index build failed.")
-        QMessageBox.warning(self, "Index Build Failed", message)
-
-    def _start_search(self):
-        query = self.query_input.text().strip()
-        if not query:
-            return
-        if self._search_worker is not None and self._search_worker.isRunning():
-            return
-
-        self.results_list.clear()
-        self.results_list.addItem("Searching...")
-        self.search_button.setEnabled(False)
-
-        self._search_worker = SearchWorker(query)
-        self._search_worker.finished.connect(self._on_search_finished)
-        self._search_worker.failed.connect(self._on_search_failed)
-        self._search_worker.start()
-
-    def _on_search_finished(self, results):
-        self.search_button.setEnabled(True)
-        self.results_list.clear()
-
-        if not results:
-            self.results_list.addItem(
-                "No matches. Build the index first, or try a different query."
-            )
-            return
-
-        for result in results:
-            self.results_list.addItem(f"{result.score:.3f}  {result.path}")
-
-    def _on_search_failed(self, message: str):
-        self.search_button.setEnabled(True)
-        self.results_list.clear()
-        QMessageBox.warning(self, "Search Failed", message)
-
-
-# ---------------------------------------------------------------
-# AI Chat tab
-# ---------------------------------------------------------------
-
-
-class ChatTab(QWidget):
-    """A simple chat window talking directly to the local Ollama model."""
-
-    # Keep only the last few exchanges in the prompt sent to the model,
-    # so prompts stay short and fast on low-end hardware.
-    MAX_HISTORY_TURNS = 4
-
-    def __init__(self):
-        super().__init__()
-        self._worker: ChatWorker | None = None
-        self._history: list[tuple[str, str]] = []  # (user_text, ai_text)
-        self._pending_user_text = ""
-
-        layout = QVBoxLayout(self)
-
-        self.transcript = QPlainTextEdit()
-        self.transcript.setReadOnly(True)
-        layout.addWidget(self.transcript)
-
-        input_row = QHBoxLayout()
-        self.input_box = QLineEdit()
-        self.input_box.setPlaceholderText(
-            f"Ask the local AI ({config.OLLAMA_MODEL}) something..."
-        )
-        self.input_box.returnPressed.connect(self._send)
-        input_row.addWidget(self.input_box)
-
-        self.send_button = QPushButton("Send")
-        self.send_button.clicked.connect(self._send)
-        input_row.addWidget(self.send_button)
-        layout.addLayout(input_row)
-
-    def _send(self):
-        text = self.input_box.text().strip()
-        if not text:
-            return
-        if self._worker is not None and self._worker.isRunning():
-            return
-
-        self.transcript.appendPlainText(f"You: {text}")
-        self.input_box.clear()
-        self.send_button.setEnabled(False)
-        self._pending_user_text = text
-
-        prompt = self._build_prompt(text)
-
-        self._worker = ChatWorker(prompt)
-        self._worker.finished.connect(self._on_response)
-        self._worker.failed.connect(self._on_failed)
-        self._worker.start()
-
-    def _build_prompt(self, new_text: str) -> str:
-        """Include recent turns as plain-text context, most recent last."""
-        recent = self._history[-self.MAX_HISTORY_TURNS :]
-        pieces = [
-            f"User: {user_text}\nAssistant: {ai_text}"
-            for user_text, ai_text in recent
-        ]
-        pieces.append(f"User: {new_text}\nAssistant:")
-        return "\n\n".join(pieces)
-
-    def _on_response(self, response: str):
-        self.send_button.setEnabled(True)
-
-        if not response:
-            response = (
-                "(No response — is Ollama running with the "
-                f"'{config.OLLAMA_MODEL}' model pulled?)"
-            )
-
-        self.transcript.appendPlainText(f"AI: {response}\n")
-        self._history.append((self._pending_user_text, response))
-
-    def _on_failed(self, message: str):
-        self.send_button.setEnabled(True)
-        self.transcript.appendPlainText(f"(error: {message})\n")
-
-
-# ---------------------------------------------------------------
-# Settings tab
-# ---------------------------------------------------------------
-
-
-class SettingsTab(QWidget):
-    """A read-only view of the active configuration (see core/config.py)."""
-
-    def __init__(self):
-        super().__init__()
-        layout = QVBoxLayout(self)
-
-        lines = (
-            [
-                f"Project root:        {config.PROJECT_ROOT}",
-                f"Scan folder:         {config.SCAN_FOLDER}",
-                f"Database file:       {config.DATABASE_PATH}",
-                f"Search index:        {config.SEARCH_INDEX_PATH}",
-                f"Logs folder:         {config.LOGS_DIR}",
-                "",
-                f"Ollama URL:          {config.OLLAMA_URL}",
-                f"Chat model:          {config.OLLAMA_MODEL}",
-                f"Embedding model:     {config.EMBEDDING_MODEL}",
-                "",
-                "Watched folders (for the folder watcher, watch_app.py):",
-            ]
-            + [f"  - {folder}" for folder in config.WATCH_FOLDERS]
-            + [
-                "",
-                "All of these can be overridden with DESKTOPAI_<NAME> "
-                "environment variables — see core/config.py for the full list.",
-            ]
-        )
-
-        text = QPlainTextEdit("\n".join(lines))
-        text.setReadOnly(True)
-        layout.addWidget(text)
-
-
-# ---------------------------------------------------------------
-# Main window
-# ---------------------------------------------------------------
-
+            self.finished.emit(actions)
+        except Exception as e:
+            logger.exception("Apply failed")
+            self.failed.emit(str(e))
 
 class MainWindow(QMainWindow):
-    # Each tab's attribute name(s) that may hold a running QThread worker.
-    _WORKER_ATTRS = {
-        "dashboard": ("_worker",),
-        "search": ("_build_worker", "_search_worker"),
-        "chat": ("_worker",),
-    }
-
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("DesktopAI")
-        self.resize(800, 600)
+        self.setWindowTitle("DesktopAI Organizer")
+        self.resize(1100, 750)
+        self.setStyleSheet(DARK_THEME)
+        
+        self.organizer = AutoOrganizer()
+        self.current_plan: Optional[OrganizationPlan] = None
+        
+        self._setup_ui()
+        self._setup_drag_drop()
 
-        self._dashboard_tab = DashboardTab()
-        self._search_tab = SearchTab()
-        self._chat_tab = ChatTab()
-        self._settings_tab = SettingsTab()
+    def _setup_ui(self):
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        main_layout = QVBoxLayout(central_widget)
+        main_layout.setContentsMargins(24, 24, 24, 24)
+        main_layout.setSpacing(16)
 
-        tabs = QTabWidget()
-        tabs.addTab(self._dashboard_tab, "Dashboard")
-        tabs.addTab(self._search_tab, "Search")
-        tabs.addTab(self._chat_tab, "AI Chat")
-        tabs.addTab(self._settings_tab, "Settings")
-        self.setCentralWidget(tabs)
+        header_layout = QHBoxLayout()
+        title = QLabel("🚀 DesktopAI Organizer")
+        title.setObjectName("title")
+        subtitle = QLabel("Intelligent, local, and private file organization powered by AI.")
+        subtitle.setObjectName("subtitle")
+        header_layout.addWidget(title)
+        header_layout.addStretch()
+        header_layout.addWidget(subtitle)
+        main_layout.addLayout(header_layout)
+
+        self.drop_zone = QFrame()
+        self.drop_zone.setObjectName("drop_zone")
+        self.drop_zone.setMinimumHeight(100)
+        drop_layout = QVBoxLayout(self.drop_zone)
+        drop_layout.setAlignment(Qt.AlignCenter)
+        
+        self.folder_label = QLabel("Drag & Drop a folder here, or click to select")
+        self.folder_label.setStyleSheet("font-size: 16px; color: #a6adc8;")
+        drop_layout.addWidget(self.folder_label)
+        
+        self.folder_path_display = QLabel("No folder selected")
+        self.folder_path_display.setStyleSheet("color: #89b4fa; font-weight: bold; font-size: 15px;")
+        drop_layout.addWidget(self.folder_path_display)
+        self.drop_zone.mousePressEvent = lambda _: self._select_folder()
+        main_layout.addWidget(self.drop_zone)
+
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setVisible(False)
+        self.progress_bar.setTextVisible(True)
+        self.progress_bar.setFormat("%p% - %m")
+        main_layout.addWidget(self.progress_bar)
+
+        self.table = QTableWidget(0, 5)
+        self.table.setHorizontalHeaderLabels(["File Name", "Current Location", "Suggested Category", "Confidence", "AI Reason"])
+        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.Stretch)
+        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.table.setAlternatingRowColors(True)
+        main_layout.addWidget(self.table, stretch=2)
+
+        log_label = QLabel("Activity Log")
+        log_label.setStyleSheet("font-weight: bold; color: #a6adc8; font-size: 13px;")
+        main_layout.addWidget(log_label)
+        
+        self.log_text = QTextEdit()
+        self.log_text.setReadOnly(True)
+        self.log_text.setMaximumHeight(130)
+        main_layout.addWidget(self.log_text)
+
+        # Action Buttons (Including new Exit button)
+        btn_layout = QHBoxLayout()
+        
+        self.btn_analyze = QPushButton("🔍 Analyze Folder")
+        self.btn_analyze.clicked.connect(self._start_analysis)
+        self.btn_analyze.setEnabled(False)
+        
+        self.btn_apply = QPushButton("✅ Apply Organization")
+        self.btn_apply.setObjectName("success")
+        self.btn_apply.clicked.connect(self._start_apply)
+        self.btn_apply.setEnabled(False)
+        
+        self.btn_undo = QPushButton("↩️ Undo Last")
+        self.btn_undo.clicked.connect(self._undo_last)
+        self.btn_undo.setEnabled(False)
+        
+        self.btn_cancel = QPushButton("⏹️ Cancel")
+        self.btn_cancel.setObjectName("danger")
+        self.btn_cancel.clicked.connect(self._cancel_operation)
+        self.btn_cancel.setEnabled(False)
+        
+        self.btn_exit = QPushButton("🚪 Exit App")
+        self.btn_exit.setObjectName("exit")
+        self.btn_exit.clicked.connect(self.close)
+        
+        btn_layout.addWidget(self.btn_analyze)
+        btn_layout.addWidget(self.btn_apply)
+        btn_layout.addWidget(self.btn_undo)
+        btn_layout.addStretch()
+        btn_layout.addWidget(self.btn_cancel)
+        btn_layout.addWidget(self.btn_exit)
+        main_layout.addLayout(btn_layout)
+
+    def _setup_drag_drop(self):
+        self.drop_zone.setAcceptDrops(True)
+        self.drop_zone.dragEnterEvent = self._drag_enter_event
+        self.drop_zone.dropEvent = self._drop_event
+
+    def _drag_enter_event(self, event: QDragEnterEvent):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+
+    def _drop_event(self, event: QDropEvent):
+        urls = event.mimeData().urls()
+        if urls:
+            path = Path(urls[0].toLocalFile())
+            if path.is_dir():
+                self._set_folder(path)
+            else:
+                self._log("Please drop a folder, not a file.", "warning")
+
+    def _select_folder(self):
+        folder = QFileDialog.getExistingDirectory(self, "Select Folder to Organize")
+        if folder:
+            self._set_folder(Path(folder))
+
+    def _set_folder(self, path: Path):
+        self.target_folder = path
+        self.folder_path_display.setText(str(path))
+        self.folder_label.setText("Selected Folder:")
+        self._log(f"Folder selected: {path}")
+        self.btn_analyze.setEnabled(True)
+
+    def _log(self, message: str, level: str = "info"):
+        colors = {"info": "#89b4fa", "success": "#a6e3a1", "warning": "#f9e2af", "error": "#f38ba8"}
+        color = colors.get(level, "#cdd6f4")
+        self.log_text.append(f'<span style="color:{color}">[{time.strftime("%H:%M:%S")}] {message}</span>')
+        self.log_text.verticalScrollBar().setValue(self.log_text.verticalScrollBar().maximum())
+
+    def _start_analysis(self):
+        if not hasattr(self, 'target_folder') or not self.target_folder.exists():
+            self._log("Please select a valid folder first.", "warning")
+            return
+
+        self._toggle_ui_state(analyzing=True)
+        self.table.setRowCount(0)
+        self.current_plan = None
+        self.btn_apply.setEnabled(False)
+        
+        self.worker = OrganizeWorker(self.organizer, self.target_folder)
+        self.worker.progress.connect(self._on_analyze_progress)
+        self.worker.finished_plan.connect(self._on_analyze_finished)
+        self.worker.failed.connect(self._on_analyze_failed)
+        self.worker.start()
+
+    def _on_analyze_progress(self, current: int, total: int, message: str):
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setMaximum(total)
+        self.progress_bar.setValue(current)
+        self.progress_bar.setFormat(f"{message} ({current}/{total})")
+
+    def _on_analyze_finished(self, plan: OrganizationPlan):
+        self._toggle_ui_state(analyzing=False)
+        self.progress_bar.setVisible(False)
+        self.current_plan = plan
+        
+        self._log(f"Analysis complete. Found {plan.summary['categorized']} files to organize.", "success")
+        
+        self.table.setRowCount(len(plan.actions))
+        for row, action in enumerate(plan.actions):
+            self.table.setItem(row, 0, QTableWidgetItem(action.source.name))
+            self.table.setItem(row, 1, QTableWidgetItem(str(action.source.parent)))
+            self.table.setItem(row, 2, QTableWidgetItem(action.category))
+            
+            conf_item = QTableWidgetItem(f"{action.confidence:.0%}")
+            if action.confidence > 0.8:
+                conf_item.setForeground(QColor("#a6e3a1"))
+            elif action.confidence > 0.5:
+                conf_item.setForeground(QColor("#f9e2af"))
+            else:
+                conf_item.setForeground(QColor("#f38ba8"))
+            self.table.setItem(row, 3, conf_item)
+            
+            self.table.setItem(row, 4, QTableWidgetItem(action.reason))
+            
+        self.btn_apply.setEnabled(True)
+        self._log("Review suggestions above. Click 'Apply Organization' to proceed.", "info")
+
+    def _on_analyze_failed(self, error: str):
+        self._toggle_ui_state(analyzing=False)
+        self.progress_bar.setVisible(False)
+        self._log(f"Analysis failed: {error}", "error")
+        QMessageBox.critical(self, "Analysis Failed", error)
+
+    def _start_apply(self):
+        if not self.current_plan or not self.current_plan.actions:
+            return
+            
+        reply = QMessageBox.question(
+            self, "Confirm Organization", 
+            f"Are you sure you want to move {len(self.current_plan.actions)} files?\nThis action can be undone.",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        )
+        if reply == QMessageBox.No:
+            return
+
+        self._toggle_ui_state(applying=True)
+        self.btn_undo.setEnabled(False)
+        
+        self.apply_worker = ApplyWorker(self.organizer, self.current_plan)
+        self.apply_worker.progress.connect(self._on_apply_progress)
+        self.apply_worker.finished.connect(self._on_apply_finished)
+        self.apply_worker.failed.connect(self._on_apply_failed)
+        self.apply_worker.start()
+
+    def _on_apply_progress(self, current: int, total: int, message: str):
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setMaximum(total)
+        self.progress_bar.setValue(current)
+        self.progress_bar.setFormat(f"{message} ({current}/{total})")
+
+    def _on_apply_finished(self, actions: list):
+        self._toggle_ui_state(applying=False)
+        self.progress_bar.setVisible(False)
+        self.btn_undo.setEnabled(True)
+        
+        moved = sum(1 for a in actions if a.status == "moved")
+        skipped = sum(1 for a in actions if a.status == "skipped")
+        failed = sum(1 for a in actions if a.status == "failed")
+        
+        self._log(f"Organization complete: {moved} moved, {skipped} skipped, {failed} failed.", "success")
+        self.btn_apply.setEnabled(False)
+
+    def _on_apply_failed(self, error: str):
+        self._toggle_ui_state(applying=False)
+        self.progress_bar.setVisible(False)
+        self._log(f"Apply failed: {error}", "error")
+        QMessageBox.critical(self, "Apply Failed", error)
+
+    def _undo_last(self):
+        self._log("Undoing last organization...", "info")
+        undone = self.organizer.undo_last()
+        if undone:
+            self._log(f"Successfully undone {len(undone)} file moves.", "success")
+            self.btn_undo.setEnabled(False)
+            self.btn_apply.setEnabled(True)
+        else:
+            self._log("Nothing to undo.", "warning")
+
+    def _cancel_operation(self):
+        self._log("Cancelling operation...", "warning")
+        self.organizer.cancel()
+        if hasattr(self, 'worker') and self.worker.isRunning():
+            self.worker.quit()
+            self.worker.wait()
+        if hasattr(self, 'apply_worker') and self.apply_worker.isRunning():
+            self.apply_worker.quit()
+            self.apply_worker.wait()
+        self._toggle_ui_state(analyzing=False, applying=False)
+        self.progress_bar.setVisible(False)
+        self._log("Operation cancelled.", "warning")
+
+    def _toggle_ui_state(self, analyzing: bool = False, applying: bool = False):
+        is_busy = analyzing or applying
+        self.btn_analyze.setEnabled(not is_busy)
+        self.btn_apply.setEnabled(not is_busy and not analyzing)
+        self.btn_cancel.setEnabled(is_busy)
+        self.drop_zone.setEnabled(not is_busy)
 
     def closeEvent(self, event):
-        """
-        Stop any still-running background thread before the window
-        closes. Without this, closing the app mid-scan (or mid-index-
-        build, or mid-chat-request) destroys the QThread object while
-        its run() is still executing in the background, which Qt
-        warns about and which can crash on some platforms.
-        """
-        named_tabs = {
-            "dashboard": self._dashboard_tab,
-            "search": self._search_tab,
-            "chat": self._chat_tab,
-        }
-
-        for tab_name, attrs in self._WORKER_ATTRS.items():
-            tab = named_tabs[tab_name]
-            for attr in attrs:
-                worker = getattr(tab, attr, None)
-                if worker is not None and worker.isRunning():
-                    worker.quit()
-                    if not worker.wait(3000):  # give it 3s to finish cleanly
-                        worker.terminate()
-                        worker.wait()
-
+        self.organizer.cancel()
+        if hasattr(self, 'worker') and self.worker.isRunning():
+            self.worker.quit()
+            self.worker.wait()
+        if hasattr(self, 'apply_worker') and self.apply_worker.isRunning():
+            self.apply_worker.quit()
+            self.apply_worker.wait()
         event.accept()
+
+if __name__ == "__main__":
+    app = QApplication(sys.argv)
+    app.setStyle("Fusion")
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec())
