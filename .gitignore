@@ -248,3 +248,4 @@ Thumbs.db
 Desktop.ini
 .DS_Store
 dist_setup/
+installer_output/

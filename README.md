@@ -1,98 +1,104 @@
-# DesktopAI
+# 🚀 DesktopAI Organizer
 
-> Offline-first AI Desktop Assistant for Intelligent File Organization
+**DesktopAI** is a modern, offline-first, AI-powered desktop application that intelligently analyzes, categorizes, and organizes your files locally. Built with privacy in mind, it uses local Large Language Models (LLMs) via Ollama to understand your files without ever sending your data to the cloud.
 
-[![Python 3.13+](https://img.shields.io/badge/Python-3.13%2B-blue)]()
-[![Tests](https://img.shields.io/badge/Tests-88%2F88-green)]()
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)]()
-
-DesktopAI is an intelligent offline desktop assistant that organizes, understands, and searches your files using local AI.
-
-**[📖 Full Documentation](docs/00-TABLE_OF_CONTENTS.md)** | **[🚀 Quick Start](QUICK_START.md)** | **[🤝 Contributing](CONTRIBUTING.md)**
-
-## ⚡ Quick Demo
-
-```bash
-# 1. Install (2 min)
-git clone https://github.com/gokul-prof-ai/Desktop-AI.git
-cd Desktop-AI && pip install -r requirements.txt
-
-# 2. Run (1 min)
-python src/app.py C:\Users\YourName\Downloads
-
-# 3. Search (Instant)
-python src/search_app.py
-> "Find all budget spreadsheets from 2024"
-✓ Results: budget-2024-q1.xlsx, budget-2024-q2.xlsx, ...
-```
-
-## Features
-
-### 🔍 Smart File Organization
-
-- AI-powered file classification
-- Preview before changes
-- Full undo support
-- Intelligent folder recommendations
-
-### 🧠 Semantic Search
-
-- Natural language queries
-- Local embeddings (privacy-first)
-- Sub-200ms search on 10K files
-
-### 📝 Document Understanding
-
-- PDF, DOCX, Excel extraction
-- OCR for images
-- Automatic summarization
-
-### 👀 Real-Time Monitoring
-
-- Watch Downloads/Desktop folders
-- Get AI suggestions instantly
-- Auto-organize on demand (v2.0)
-
-## Tech Stack
-
-- Python 3.13
-- SQLite + FAISS
-- Ollama (local LLM)
-- PySide6 (GUI, planned)
-
-## Installation
-
-See [Installation Guide](docs/01-INSTALLATION.md) for detailed setup.
-
-```bash
-pip install -r requirements.txt
-python src/app.py <folder>
-```
-
-## Usage
-
-- **User Guide:** [docs/03-USER_GUIDE.md](docs/03-USER_GUIDE.md)
-- **Configuration:** [docs/10-CONFIGURATION.md](docs/10-CONFIGURATION.md)
-- **Troubleshooting:** [docs/11-TROUBLESHOOTING.md](docs/11-TROUBLESHOOTING.md)
-
-## Development
-
-- **Setup:** [docs/07-DEVELOPMENT.md](docs/07-DEVELOPMENT.md)
-- **Architecture:** [docs/04-ARCHITECTURE.md](docs/04-ARCHITECTURE.md)
-- **Contributing:** [CONTRIBUTING.md](CONTRIBUTING.md)
-- **Testing:** [docs/09-TESTING.md](docs/09-TESTING.md)
-
-## Project Status
-
-Phase 9 Complete: Semantic Search ✅
-Next: GUI Application (v1.0)
-
-[Full Roadmap](docs/13-ROADMAP.md)
-
-## License
-
-MIT License © 2024 Gokul
+![Python](https://img.shields.io/badge/Python-3.10+-blue?logo=python)
+![PySide6](https://img.shields.io/badge/GUI-PySide6-green?logo=qt)
+![AI](https://img.shields.io/badge/AI-Ollama-ff7000?logo=ollama)
+![License](https://img.shields.io/badge/License-MIT-yellow)
 
 ---
 
-**Questions?** Check [Troubleshooting](docs/11-TROUBLESHOOTING.md) or [open an issue](https://github.com/gokul-prof-ai/Desktop-AI/issues)
+## ✨ Key Features
+
+- **🧠 Hybrid AI Categorization:** Instant rule-based sorting (milliseconds) + Local LLM fallback for ambiguous files (seconds).
+- **🎨 Modern GUI:** Dark theme, drag-and-drop, live progress, and smart preview tables.
+- **🔒 100% Offline & Private:** Your files and AI prompts never leave your machine.
+- **🛡️ Robust & Reliable:** Handles Windows file locks, corrupted files, and includes a 1-click Undo feature.
+
+---
+
+## 📦 Installation & Setup
+
+### Prerequisites
+
+1. Python 3.10+ installed.
+2. Ollama installed and running (`ollama serve`).
+
+### Steps
+
+bash
+git clone https://github.com/gokul-prof-ai/Desktop-AI.git
+cd Desktop-AI
+python -m venv .venv
+.venv\Scripts\activate # Windows
+pip install -r requirements.txt
+ollama pull llama3.2:1b
+
+---
+
+## 🚀 How to Use
+
+1. Launch the app: `python run.py`
+2. Drag and drop a messy folder into the Drop Zone.
+3. Click **🔍 Analyze Folder** to see AI suggestions.
+4. Click **✅ Apply Organization** to move files.
+5. Made a mistake? Click **↩️ Undo Last**.
+
+---
+
+## 📂 Project Structure
+
+````text
+Desktop-AI/
+├── src/
+│   ├── ai/               # Hybrid AI categorizer
+│   ├── core/             # Config and logging
+│   ├── documents/        # PDF, DOCX, Excel, OCR parsers
+│   ├── gui/              # PySide6 Modern GUI
+│   ├── organizer/        # Auto-organizer pipeline
+│   └── scanner/          # Recursive file scanner
+├── docs/                 # Professional documentation
+├── run.py                # Main app launcher
+└── requirements.txt      # Dependencies
+
+---
+
+### 📁 FOLDER 2: `src/core/`
+
+#### 📄 File: `src/core/config.py`
+```python
+import os
+from pathlib import Path
+
+# Base directories
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
+DATA_DIR = BASE_DIR / "data"
+LOGS_DIR = BASE_DIR / "logs"
+CONFIG_DIR = BASE_DIR / "config"
+
+# Ensure directories exist
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+LOGS_DIR.mkdir(parents=True, exist_ok=True)
+CONFIG_DIR.mkdir(parents=True, exist_ok=True)
+
+# AI Configuration
+OLLAMA_MODEL = os.getenv("DESKTOPAI_OLLAMA_MODEL", "llama3.2")
+OLLAMA_MODEL_FAST = os.getenv("DESKTOPAI_OLLAMA_MODEL_FAST", "llama3.2:1b")
+OLLAMA_HOST = os.getenv("DESKTOPAI_OLLAMA_HOST", "http://localhost:11434")
+OLLAMA_URL = f"{OLLAMA_HOST}/api/generate"
+
+# Performance Configuration
+MAX_WORKERS = int(os.getenv("DESKTOPAI_MAX_WORKERS", "4"))
+HASH_CHUNK_SIZE = 8192
+
+# Scanner Configuration
+SCAN_MAX_DEPTH = 10
+SUPPORTED_EXTENSIONS = [
+    ".pdf", ".docx", ".xlsx", ".xls", ".txt", ".md", ".csv", ".json",
+    ".py", ".js", ".html", ".css", ".java", ".cpp", ".c", ".rs", ".go",
+    ".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".gif", ".heic",
+    ".mp3", ".wav", ".mp4", ".mkv", ".avi",
+    ".zip", ".rar", ".7z", ".tar", ".gz"
+]
+````
