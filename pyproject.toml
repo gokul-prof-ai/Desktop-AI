@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "desktop-ai"
+version = "2.0.0"
+description = "DesktopAI — Local AI-powered file organizer and assistant"
+requires-python = ">=3.11"
+
+# Core runtime dependencies
+# Version pins chosen for Python 3.14 compatibility
+dependencies = [
+    "PySide6>=6.11.1",
+    "watchdog>=6.0.0",
+    "pymupdf>=1.28.0",
+    "python-docx>=1.2.0",
+    "openpyxl>=3.1.5",
+    "pillow>=12.3.0",
+    "requests>=2.34.0",
+    "faiss-cpu>=1.14.0",
+    "numpy>=2.4.0",
+    "filetype>=1.2.0",
+    "toml>=0.10.2",
+    "colorama>=0.4.6",
+    "pytesseract>=0.3.13",
+]
+
+[project.optional-dependencies]
+# Install with: pip install -e ".[dev]"
+dev = [
+    "pytest>=9.1.0",
+    "pytest-qt>=4.4.0",
+    "pytest-env>=1.1.5",
+    "black>=26.0.0",
+    "mypy>=1.10.0",
+]
+
+# Install with: pip install -e ".[build]"
+build = [
+    "pyinstaller>=6.15.0",
+]
+
+[project.scripts]
+# After installing, this command launches the app
+desktop-ai = "main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311", "py312"]
