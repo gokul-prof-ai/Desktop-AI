@@ -1,0 +1,72 @@
+# DesktopAI v2.0 — File Category Rules
+# File: config/categories.toml
+#
+# These rules tell DesktopAI how to categorize files WITHOUT calling the AI.
+# The AI is only consulted when no rule here matches — this makes
+# classification fast and cheap for common file types.
+#
+# Format for each category:
+#   [categories.CategoryName]
+#   extensions = [".ext1", ".ext2"]   # matched by file extension
+#   keywords   = ["word1", "word2"]   # matched against filename (lowercase)
+#
+# Rules are checked in the order they appear. First match wins.
+# Category names become the folder names used during organization.
+
+[categories.Finance]
+extensions = [".xlsx", ".xls", ".csv"]
+keywords   = [
+    "invoice", "receipt", "payment", "salary", "budget",
+    "tax", "gst", "bank", "statement", "ledger", "account",
+    "expense", "payroll", "bill", "quote", "purchase"
+]
+
+[categories.Documents]
+extensions = [".docx", ".doc", ".rtf", ".odt"]
+keywords   = [
+    "report", "letter", "memo", "draft", "proposal",
+    "contract", "agreement", "minutes", "note", "summary"
+]
+
+[categories.PDFs]
+extensions = [".pdf"]
+keywords   = []
+
+[categories.Presentations]
+extensions = [".pptx", ".ppt", ".odp"]
+keywords   = ["presentation", "slides", "deck", "pitch"]
+
+[categories.Code]
+extensions = [
+    ".py", ".js", ".ts", ".java", ".cpp", ".c", ".cs",
+    ".go", ".rs", ".rb", ".php", ".html", ".css", ".sh",
+    ".bat", ".ps1", ".sql", ".json", ".yaml", ".yml", ".toml"
+]
+keywords   = ["script", "code", "module", "function", "class"]
+
+[categories.Images]
+extensions = [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".webp", ".heic", ".svg"]
+keywords   = ["photo", "image", "screenshot", "scan", "picture", "wallpaper"]
+
+[categories.Videos]
+extensions = [".mp4", ".mkv", ".avi", ".mov", ".wmv", ".flv", ".webm"]
+keywords   = ["video", "recording", "clip", "footage"]
+
+[categories.Audio]
+extensions = [".mp3", ".wav", ".flac", ".aac", ".ogg", ".m4a"]
+keywords   = ["audio", "music", "recording", "podcast"]
+
+[categories.Archives]
+extensions = [".zip", ".rar", ".7z", ".tar", ".gz", ".bz2"]
+keywords   = ["archive", "backup", "compressed", "bundle"]
+
+[categories.Data]
+extensions = [".json", ".xml", ".csv", ".parquet", ".db", ".sqlite"]
+keywords   = ["data", "dataset", "export", "dump", "log"]
+
+[categories.Miscellaneous]
+extensions = []
+keywords   = []
+# Catch-all — files that match nothing above land here.
+# Leave extensions and keywords empty so it never matches by rule.
+# The AI classifier assigns files here as a last resort.

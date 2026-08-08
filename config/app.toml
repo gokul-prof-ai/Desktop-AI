@@ -1,0 +1,89 @@
+# DesktopAI v2.0 — Application Configuration
+# File: config/app.toml
+#
+# This file is read at startup and can be edited while the app is closed.
+# Do not delete keys — set them to their default values instead.
+# Comments starting with # are ignored.
+
+[app]
+name    = "DesktopAI"
+version = "2.0.0"
+# "light" or "dark" — controls the GUI theme
+theme   = "dark"
+# Show the setup wizard on first launch (auto-set to false after completion)
+first_run = true
+
+[ai]
+# The Ollama model used for file classification and planning.
+# Must be pulled in Ollama before use: ollama pull llama3.2
+model = "llama3.2"
+
+# Faster model for quick category guesses (used in fast-path classification).
+# Must be pulled in Ollama: ollama pull llama3.2:1b
+model_fast = "llama3.2:1b"
+
+# Full URL to the Ollama API server.
+host = "http://localhost:11434"
+
+# How many seconds to wait for a response before giving up.
+timeout = 60
+
+# Maximum number of retries on failure before reporting an error.
+max_retries = 3
+
+[scanner]
+# How deep into subdirectories the scanner will go (1 = top folder only).
+max_depth = 10
+
+# Number of parallel threads used when scanning large folders.
+# Increase on machines with more CPU cores for faster scanning.
+max_workers = 4
+
+# If true, files inside hidden folders (names starting with .) are skipped.
+skip_hidden = true
+
+# If true, files inside system folders (Windows: $RECYCLE.BIN, etc.) are skipped.
+skip_system = true
+
+[ocr]
+# If true, DesktopAI will attempt to extract text from image files.
+enabled = true
+# "tesseract" is the default. "paddleocr" will be supported in Phase 4.
+engine = "tesseract"
+# Tesseract language packs to use. "eng" = English.
+# Add more: ["eng", "hin"] for English + Hindi.
+languages = ["eng"]
+
+[search]
+# Maximum number of results returned by a semantic search query.
+max_results = 50
+
+# Minimum similarity score (0.0 to 1.0) to include a result.
+# Lower = more results but less relevant. Higher = fewer but precise.
+min_score = 0.3
+
+# Sentence-transformers model used to generate embeddings.
+# Change only if you want a different embedding model.
+embedding_model = "all-MiniLM-L6-v2"
+
+[storage]
+# File name for the SQLite database (stored in project data/ folder).
+db_filename = "desktop_ai.db"
+
+[logging]
+# "DEBUG", "INFO", "WARNING", "ERROR"
+# WARNING is recommended for normal use. DEBUG for troubleshooting.
+level = "WARNING"
+
+# Maximum size of each log file in megabytes before rotation.
+max_mb = 5
+
+# How many rotated log files to keep.
+backup_count = 3
+
+[window]
+# Default window size on first launch.
+width  = 1280
+height = 800
+# Remember the window position and size between sessions.
+remember_geometry = true
