@@ -1,0 +1,147 @@
+/* DesktopAI v2.0 — Neomorphic Stylesheet */
+/* File: src/gui/theme/neomorphic.qss */
+
+/* ── Global Defaults ─────────────────────────────────────────────── */
+QWidget {
+    background-color: #0D0D12;
+    color: #E8E8F0;
+    font-family: 'Inter', 'Segoe UI', sans-serif;
+    font-size: 14px;
+}
+
+/* ── Main Window & Backgrounds ───────────────────────────────────── */
+QMainWindow {
+    background-color: #0D0D12;
+}
+
+/* ── Sidebar ─────────────────────────────────────────────────────── */
+QListWidget#Sidebar {
+    background-color: #13131A;
+    border: none;
+    border-right: 1px solid #1A1A24;
+    outline: none;
+}
+
+QListWidget#Sidebar::item {
+    padding: 12px 16px;
+    border-radius: 12px;
+    margin: 4px 8px;
+    color: #8B8BA8;
+}
+
+QListWidget#Sidebar::item:hover {
+    background-color: #1A1A24;
+    color: #E8E8F0;
+}
+
+QListWidget#Sidebar::item:selected {
+    background-color: #1A1A24;
+    color: #4F8EF7;
+    font-weight: 600;
+}
+
+/* ── Neomorphic Cards / Surfaces ─────────────────────────────────── */
+QFrame#Card, QFrame#Surface {
+    background-color: #13131A;
+    border-radius: 12px;
+    /* Neomorphic inner shadow simulation */
+    border-top: 1px solid #1F1F2E;
+    border-left: 1px solid #1F1F2E;
+    border-bottom: 1px solid #08080D;
+    border-right: 1px solid #08080D;
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────── */
+QPushButton {
+    background-color: #13131A;
+    color: #E8E8F0;
+    border-radius: 12px;
+    border-top: 1px solid #1F1F2E;
+    border-left: 1px solid #1F1F2E;
+    border-bottom: 1px solid #08080D;
+    border-right: 1px solid #08080D;
+    padding: 10px 20px;
+    font-weight: 500;
+}
+
+QPushButton:hover {
+    background-color: #1A1A24;
+    color: #4F8EF7;
+}
+
+QPushButton:pressed {
+    border-top: 1px solid #08080D;
+    border-left: 1px solid #08080D;
+    border-bottom: 1px solid #1F1F2E;
+    border-right: 1px solid #1F1F2E;
+}
+
+QPushButton#PrimaryButton {
+    background-color: #4F8EF7;
+    color: #0D0D12;
+    border: none;
+    font-weight: 600;
+}
+
+QPushButton#PrimaryButton:hover {
+    background-color: #6AA1F9;
+}
+
+QPushButton#PrimaryButton:pressed {
+    background-color: #3A7BE5;
+}
+
+/* ── Inputs ──────────────────────────────────────────────────────── */
+QLineEdit, QTextEdit {
+    background-color: #0F0F17;
+    color: #E8E8F0;
+    border-radius: 8px;
+    border: 1px solid #1A1A24;
+    padding: 8px 12px;
+    selection-background-color: #4F8EF7;
+    selection-color: #0D0D12;
+}
+
+QLineEdit:focus, QTextEdit:focus {
+    border: 1px solid #4F8EF7;
+}
+
+/* ── Scrollbars ──────────────────────────────────────────────────── */
+QScrollBar:vertical {
+    background-color: #0D0D12;
+    width: 10px;
+    border-radius: 5px;
+}
+
+QScrollBar::handle:vertical {
+    background-color: #1A1A24;
+    border-radius: 5px;
+    min-height: 30px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background-color: #4F8EF7;
+}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0px;
+}
+
+/* ── Labels & Typography ─────────────────────────────────────────── */
+QLabel#Title {
+    font-size: 28px;
+    font-weight: 700;
+    color: #E8E8F0;
+    letter-spacing: -0.5px;
+}
+
+QLabel#Subtitle {
+    font-size: 16px;
+    color: #8B8BA8;
+}
+
+QLabel#Mono {
+    font-family: 'JetBrains Mono', 'Consolas', monospace;
+    font-size: 12px;
+    color: #8B8BA8;
+}
