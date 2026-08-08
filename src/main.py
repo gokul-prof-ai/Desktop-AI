@@ -37,15 +37,13 @@ Examples:
     parser.add_argument("--cli", action="store_true", default=False)
     parser.add_argument("--debug", action="store_true", default=False)
     parser.add_argument("--mock-ai", action="store_true", default=False,
-                        help="Use MockProvider instead of Ollama (for development/testing).")
+                        help="Use MockProvider instead of Ollama.")
     parser.add_argument("--config", type=Path, default=None, metavar="PATH")
     return parser
 
 
 def _setup_ai_gateway(use_mock: bool) -> None:
-    """Initialize the AI Gateway with the appropriate provider."""
     from infrastructure.ai.gateway import AIGateway
-
     if use_mock:
         from infrastructure.ai.mock_provider import MockProvider
         AIGateway.set_provider(MockProvider(delay_ms=100))
@@ -58,23 +56,26 @@ def _launch_gui(args: argparse.Namespace) -> int:
     from core.logger import get_logger
     from infrastructure.config.settings import Settings
     from infrastructure.ai.gateway import AIGateway
+    from infrastructure.storage.database import DB
 
     logger = get_logger(__name__)
     logger.info("Launching DesktopAI v%s", __version__)
 
+    stats = DB.get_stats()
     provider_name = AIGateway.get_provider().provider_name
     is_healthy = AIGateway.health_check()
 
     print(f"\n  {__app_name__} v{__version__}")
     print("  ─────────────────────────────────────────")
-    print("  Mode      : GUI")
-    print(f"  Debug     : {'ON' if args.debug else 'OFF'}")
-    print(f"  AI Model  : {Settings.ai.model}")
-    print(f"  AI Host   : {Settings.ai.host}")
-    print(f"  Provider  : {provider_name}")
-    print(f"  AI Ready  : {'✓ YES' if is_healthy else '✗ NO (Ollama not running)'}")
-    print(f"  Categories: {len(Settings.categories)} rules loaded")
-    print("  Status    : Milestone 4 complete — AI Gateway active")
+    print("  Mode       : GUI")
+    print(f"  Debug      : {'ON' if args.debug else 'OFF'}")
+    print(f"  AI Model   : {Settings.ai.model}")
+    print(f"  Provider   : {provider_name}")
+    print(f"  AI Ready   : {'✓ YES' if is_healthy else '✗ NO (Ollama not running)'}")
+    print(f"  Categories : {len(Settings.categories)} rules loaded")
+    print(f"  DB Files   : {stats['total_files']} tracked")
+    print(f"  DB History : {stats['total_operations']} operations")
+    print("  Status     : Milestone 5 complete — Storage layer active")
     print()
     return 0
 
@@ -99,11 +100,18 @@ def main() -> None:
     # Step 3 — AI Gateway
     _setup_ai_gateway(use_mock=args.mock_ai)
 
-    # Step 4 — Launch
+    # Step 4 — Database (connect + migrate)
+    from infrastructure.storage.database import DB
+    DB.connect()
+
+    # Step 5 — Launch
     if args.cli:
         exit_code = _launch_cli(args)
     else:
         exit_code = _launch_gui(args)
+
+    # Step 6 — Clean shutdown
+    DB.close()
 
     sys.exit(exit_code)
 
