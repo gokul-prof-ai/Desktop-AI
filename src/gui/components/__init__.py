@@ -1,3 +1,1 @@
-"""
-DesktopAI v2.0 — src.gui.components
-"""
+﻿"""DesktopAI v2.0 - GUI Components Package"""
