@@ -12,6 +12,10 @@ from PySide6.QtGui import QFont
 from core.constants import APP_NAME, WINDOW_DEFAULT_WIDTH, WINDOW_DEFAULT_HEIGHT
 from gui.components.animated_stack import AnimatedStackedWidget
 from gui.views.home_view import HomeView
+from gui.views.organize_view import OrganizeView
+from gui.views.search_view import SearchView
+from gui.views.chat_view import ChatView
+from gui.views.settings_view import SettingsView
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -24,11 +28,7 @@ class MainWindow(QMainWindow):
         self._setup_ui()
         
     def _apply_mac_style(self):
-        self.setStyleSheet("""
-            QMainWindow {
-                background-color: #050508;
-            }
-        """)
+        self.setStyleSheet("QMainWindow { background-color: #050508; }")
         
     def _setup_ui(self):
         central = QWidget()
@@ -38,11 +38,9 @@ class MainWindow(QMainWindow):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
         
-        # Sidebar
         sidebar = self._create_sidebar()
         main_layout.addWidget(sidebar)
         
-        # Main Content
         content = self._create_main_content()
         main_layout.addWidget(content, 1)
 
@@ -60,15 +58,13 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 20, 0, 20)
         
         logo = QLabel("DesktopAI")
-        logo.setFont(QFont("SF Pro Display", 20, QFont.Weight.Bold))
+        logo.setFont(QFont("Segoe UI", 20, QFont.Weight.Bold))
         logo.setStyleSheet("color: #FFFFFF; padding: 0 24px 20px 24px;")
         layout.addWidget(logo)
         
-        nav = QListWidget()
-        nav.setStyleSheet("""
-            QListWidget {
-                background: transparent; border: none; outline: none;
-            }
+        self.nav = QListWidget()
+        self.nav.setStyleSheet("""
+            QListWidget { background: transparent; border: none; outline: none; }
             QListWidget::item {
                 padding: 12px 24px; margin: 4px 12px; border-radius: 8px;
                 color: #A1A1AA; font-size: 14px;
@@ -80,9 +76,13 @@ class MainWindow(QMainWindow):
                 color: #FFF; border-left: 3px solid #8B5CF6;
             }
         """)
-        for item in ["Home", "Organize", "Search", "Chat", "Settings"]:
-            QListWidgetItem(item, nav)
-        layout.addWidget(nav)
+        
+        self.sections = ["Home", "Organize", "Search", "Chat", "Settings"]
+        for item in self.sections:
+            QListWidgetItem(item, self.nav)
+            
+        self.nav.currentRowChanged.connect(self._on_nav_changed)
+        layout.addWidget(self.nav)
         layout.addStretch()
         return sidebar
 
@@ -92,18 +92,25 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(content)
         layout.setContentsMargins(40, 40, 40, 40)
         
-        self.page_title = QLabel("Dashboard")
-        self.page_title.setFont(QFont("SF Pro Display", 28, QFont.Weight.Bold))
+        self.page_title = QLabel("Home")
+        self.page_title.setFont(QFont("Segoe UI", 28, QFont.Weight.Bold))
         self.page_title.setStyleSheet("color: #FFFFFF;")
         layout.addWidget(self.page_title)
         layout.addSpacing(20)
         
         self.stack = AnimatedStackedWidget()
+        
+        # Add UNIQUE views for each section
         self.stack.addWidget(HomeView())
-        for _ in range(4):
-            empty = QWidget()
-            empty.setStyleSheet("background: transparent;")
-            self.stack.addWidget(empty)
+        self.stack.addWidget(OrganizeView())
+        self.stack.addWidget(SearchView())
+        self.stack.addWidget(ChatView())
+        self.stack.addWidget(SettingsView())
             
         layout.addWidget(self.stack, 1)
         return content
+        
+    def _on_nav_changed(self, index):
+        if 0 <= index < len(self.sections):
+            self.page_title.setText(self.sections[index])
+            self.stack.setCurrentIndex(index)

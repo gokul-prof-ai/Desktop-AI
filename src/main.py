@@ -1,5 +1,5 @@
 """
-DesktopAI v2.0 — Application Entry Point
+DesktopAI v2.0 — Unified Application Entry Point
 File: src/main.py
 """
 from __future__ import annotations
@@ -19,7 +19,7 @@ __app_name__ = "DesktopAI"
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="desktop-ai",
-        description=f"{__app_name__} v{__version__} — AI-powered file organizer",
+        description=f"{__app_name__} v{__version__} — Modern AI-powered file organizer",
     )
     parser.add_argument("--version", "-v", action="version",
                         version=f"{__app_name__} v{__version__}")
@@ -42,40 +42,44 @@ def _setup_ai_gateway(use_mock: bool) -> None:
 
 
 def _launch_gui(args: argparse.Namespace) -> int:
-    from core.logger import get_logger, set_debug_mode
+    from core.logger import get_logger
     from infrastructure.config.settings import Settings
     from infrastructure.ai.gateway import AIGateway
     from infrastructure.storage.database import DB
+    from PySide6.QtWidgets import QApplication
+    from PySide6.QtGui import QFont
+    
+    # Import your main window. 
+    # NOTE: If your main_window.py uses 'ModernMainWindow', change the import below.
+    from gui.windows.main_window import MainWindow 
     
     logger = get_logger(__name__)
-    logger.info("Launching DesktopAI v%s", __version__)
+    logger.info("Launching DesktopAI v%s — GUI", __version__)
     
-    # In mock mode, reduce logging verbosity
-    if args.mock_ai:
-        set_debug_mode(False)
+    app = QApplication(sys.argv)
+    app.setApplicationName(__app_name__)
+    app.setApplicationVersion(__version__)
     
-    stats = DB.get_stats()
-    provider_name = AIGateway.get_provider().provider_name
-    is_healthy = AIGateway.health_check()
+    # Set default font
+    default_font = QFont("Segoe UI", 12)
+    app.setFont(default_font)
     
-    print(f"\n{__app_name__} v{__version__}")
-    print("  ─────────────────────────────────────────")
-    print("  Mode       : GUI")
-    print(f"  Debug      : {'ON' if args.debug else 'OFF'}")
-    print(f"  AI Model   : {Settings.ai.model}")
-    print(f"  Provider   : {provider_name}")
-    print(f"  AI Ready   : {'✓ YES' if is_healthy else '✗ NO'}")
-    print(f"  Categories : {len(Settings.categories)} rules loaded")
-    print(f"  DB Files   : {stats['total_files']} tracked")
-    print(f"  DB History : {stats['total_operations']} operations")
-    print("  Status     : Milestone 6 complete — Ready for UI development")
-    print()
+    # Apply modern dashboard stylesheet
+    qss_path = _SRC_DIR / "gui" / "theme" / "modern_dashboard.qss"
+    if qss_path.exists():
+        app.setStyleSheet(qss_path.read_text(encoding="utf-8"))
+        logger.info("Applied modern dashboard stylesheet")
     
-    return 0
+    # Create and show main window
+    window = MainWindow()
+    window.show()
+    
+    logger.info("GUI launched successfully")
+    return app.exec()
 
 
 def _launch_cli(args: argparse.Namespace) -> int:
-    print(f"\n{__app_name__} v{__version__} — CLI mode\n")
+    print(f"\n{__app_name__} v{__version__} — CLI mode (Phase 3)\n")
     return 0
 
 
@@ -83,17 +87,22 @@ def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
     
+    # Step 1 — Logging
     from core.logger import configure
     configure(debug=args.debug)
     
+    # Step 2 — Settings
     from infrastructure.config.settings import Settings
     Settings.load(config_path=args.config)
     
+    # Step 3 — AI Gateway
     _setup_ai_gateway(use_mock=args.mock_ai)
     
+    # Step 4 — Database
     from infrastructure.storage.database import DB
     DB.connect()
     
+    # Step 5 — Launch
     try:
         if args.cli:
             exit_code = _launch_cli(args)
