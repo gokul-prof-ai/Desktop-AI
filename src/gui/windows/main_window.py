@@ -1,8 +1,7 @@
 """
 DesktopAI v2.0 — Main Window
 File: src/gui/windows/main_window.py
-
-Navigation shell. Routes scan results from Home to Organize.
+Shell with top bar: theme toggle + sound toggle. Routes scan results.
 """
 from __future__ import annotations
 from PySide6.QtWidgets import (
@@ -13,6 +12,9 @@ from PySide6.QtGui import QFont
 
 from core.constants import APP_NAME, WINDOW_DEFAULT_WIDTH, WINDOW_DEFAULT_HEIGHT
 from gui.components.animated_stack import AnimatedStackedWidget
+from gui.components.sound_button import SoundButton
+from gui.theme import theme_manager
+from gui.utils.sounds import SOUNDS
 from gui.views.home_view import HomeView
 from gui.views.organize_view import OrganizeView
 from gui.views.search_view import SearchView
@@ -27,48 +29,61 @@ class MainWindow(QMainWindow):
         self.resize(WINDOW_DEFAULT_WIDTH, WINDOW_DEFAULT_HEIGHT)
         self.setMinimumSize(1000, 700)
         self._latest_results: list = []
-        self.setStyleSheet("QMainWindow { background-color: #050508; }")
+
+        theme_manager.apply_saved_theme()
         self._setup_ui()
 
     def _setup_ui(self):
         central = QWidget()
         self.setCentralWidget(central)
+        root = QVBoxLayout(central)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
 
-        main_layout = QHBoxLayout(central)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
+        root.addWidget(self._create_top_bar())
 
-        main_layout.addWidget(self._create_sidebar())
-        main_layout.addWidget(self._create_main_content(), 1)
+        body = QWidget()
+        body_layout = QHBoxLayout(body)
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(0)
+        body_layout.addWidget(self._create_sidebar())
+        body_layout.addWidget(self._create_main_content(), 1)
+        root.addWidget(body, 1)
 
-    def _create_sidebar(self) -> QWidget:
+    def _create_top_bar(self) -> QFrame:
+        bar = QFrame()
+        bar.setObjectName("TopBar")
+        bar.setFixedHeight(56)
+        layout = QHBoxLayout(bar)
+        layout.setContentsMargins(20, 8, 20, 8)
+
+        logo = QLabel("DesktopAI")
+        logo.setObjectName("Logo")
+        layout.addWidget(logo)
+        layout.addStretch()
+
+        self.sound_btn = SoundButton("🔊")
+        self.sound_btn.setObjectName("IconButton")
+        self.sound_btn.setFixedSize(40, 40)
+        self.sound_btn.clicked.connect(self._toggle_sound)
+        layout.addWidget(self.sound_btn)
+
+        self.theme_btn = SoundButton("🌙" if theme_manager.current_theme() == "dark" else "☀️")
+        self.theme_btn.setObjectName("IconButton")
+        self.theme_btn.setFixedSize(40, 40)
+        self.theme_btn.clicked.connect(self._toggle_theme)
+        layout.addWidget(self.theme_btn)
+        return bar
+
+    def _create_sidebar(self) -> QFrame:
         sidebar = QFrame()
-        sidebar.setFixedWidth(240)
-        sidebar.setStyleSheet("""
-            QFrame { background-color: #0A0A0F; border-right: 1px solid #1A1A24; }
-        """)
+        sidebar.setStyleSheet("background: transparent;")
         layout = QVBoxLayout(sidebar)
         layout.setContentsMargins(0, 20, 0, 20)
 
-        logo = QLabel("DesktopAI")
-        logo.setFont(QFont("Segoe UI", 20, QFont.Weight.Bold))
-        logo.setStyleSheet("color: #FFFFFF; padding: 0 24px 20px 24px;")
-        layout.addWidget(logo)
-
         self.nav = QListWidget()
-        self.nav.setStyleSheet("""
-            QListWidget { background: transparent; border: none; outline: none; }
-            QListWidget::item {
-                padding: 12px 24px; margin: 4px 12px; border-radius: 8px;
-                color: #A1A1AA; font-size: 14px;
-            }
-            QListWidget::item:hover { background-color: rgba(255,255,255,0.05); color: #FFF; }
-            QListWidget::item:selected {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                    stop:0 rgba(139, 92, 246, 0.2), stop:1 rgba(59, 130, 246, 0.1));
-                color: #FFF; border-left: 3px solid #8B5CF6;
-            }
-        """)
+        self.nav.setObjectName("Sidebar")
+        self.nav.setFixedWidth(240)
         self.sections = ["Home", "Organize", "Search", "Chat", "Settings"]
         for item in self.sections:
             QListWidgetItem(item, self.nav)
@@ -79,13 +94,12 @@ class MainWindow(QMainWindow):
 
     def _create_main_content(self) -> QWidget:
         content = QWidget()
-        content.setStyleSheet("background-color: #050508;")
+        content.setStyleSheet("background: transparent;")
         layout = QVBoxLayout(content)
-        layout.setContentsMargins(40, 40, 40, 40)
+        layout.setContentsMargins(40, 30, 40, 30)
 
         self.page_title = QLabel("Home")
-        self.page_title.setFont(QFont("Segoe UI", 28, QFont.Weight.Bold))
-        self.page_title.setStyleSheet("color: #FFFFFF;")
+        self.page_title.setObjectName("PageTitle")
         layout.addWidget(self.page_title)
         layout.addSpacing(20)
 
@@ -102,11 +116,21 @@ class MainWindow(QMainWindow):
         self.home_view.vm.scan_completed.connect(self._on_scan_completed)
         return content
 
+    def _toggle_theme(self):
+        new = theme_manager.toggle_theme()
+        self.theme_btn.setText("🌙" if new == "dark" else "☀️")
+
+    def _toggle_sound(self):
+        SOUNDS.set_enabled(not SOUNDS.enabled)
+        self.sound_btn.setText("🔊" if SOUNDS.enabled else "🔇")
+        SOUNDS.play_click()
+
     def _on_scan_completed(self, results: list) -> None:
         self._latest_results = results
 
     def _on_nav_changed(self, index: int) -> None:
         if 0 <= index < len(self.sections):
+            SOUNDS.play_click()
             self.page_title.setText(self.sections[index])
             self.stack.setCurrentIndex(index)
             if index == 1 and self._latest_results:
