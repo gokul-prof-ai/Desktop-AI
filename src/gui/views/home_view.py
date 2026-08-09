@@ -1,214 +1,508 @@
 """
-DesktopAI v2.0 — Home View (App Shell UI)
-File: src/gui/views/home_view.py
+DesktopAI v2.0
+Home page.
 
-Console-type layout:
-  - Stat row (3 cards: Files Scanned, Categories, Operations)
-  - Drop zone hero card
-  - Results table (appears after scan)
+Responsibilities:
+    - Folder scanning
+    - Scan progress
+    - Real statistics
+    - Classification results
+    - File opening
 """
+
 from __future__ import annotations
 
-from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QFrame, QStackedWidget, QTableWidget,
-    QTableWidgetItem, QHeaderView, QPushButton,
-)
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont
+from pathlib import Path
 
+from PySide6.QtCore import Qt, Signal, QUrl
+from PySide6.QtGui import QDesktopServices
+from PySide6.QtWidgets import (
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QStackedWidget,
+    QTableWidget,
+    QTableWidgetItem,
+    QHeaderView,
+    QPushButton,
+    QFrame,
+    QProgressBar,
+)
+
+from core.logger import get_logger
+from domain.scanner.file_info import AnalysisResult
 from gui.components.trendy_drop_zone import MagneticDropZone
 from gui.viewmodels.home_vm import HomeViewModel
 from infrastructure.storage.database import DB
-from core.logger import get_logger
+
 
 logger = get_logger(__name__)
 
-_CONTENT_PADDING = 24
-
 
 class HomeView(QWidget):
-    """Home screen — stat cards + drop zone + results."""
+    """
+    Main application dashboard.
+    """
 
-    def __init__(self) -> None:
+    scan_ready = Signal(str, list)
+
+    def __init__(self):
         super().__init__()
+
         self.vm = HomeViewModel()
-        self._setup_ui()
-        self._connect_signals()
-        self._refresh_stats()
+        self.current_scan_path: str | None = None
+        self.results: list[AnalysisResult] = []
 
-    def _setup_ui(self) -> None:
-        root = QVBoxLayout(self)
-        root.setContentsMargins(_CONTENT_PADDING, _CONTENT_PADDING,
-                                _CONTENT_PADDING, _CONTENT_PADDING)
-        root.setSpacing(16)
-
-        # Stat row
-        stat_row = self._build_stat_row()
-        root.addWidget(stat_row)
-
-        # Page switcher: drop zone ↔ results
-        self.stack = QStackedWidget()
-        self.stack.addWidget(self._build_drop_page())
-        self.stack.addWidget(self._build_results_page())
-        root.addWidget(self.stack, 1)
-
-    def _build_stat_row(self) -> QWidget:
-        """Three stat cards in a horizontal row."""
-        row = QWidget()
-        layout = QHBoxLayout(row)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(16)
+
+        self.stack = QStackedWidget()
+        layout.addWidget(self.stack)
+
+        self._create_empty_page()
+        self._create_results_page()
+
+        self.vm.scan_progress.connect(
+            self._on_scan_progress
+        )
+
+        self.vm.scan_completed.connect(
+            self._on_scan_completed
+        )
+
+        self.vm.scan_failed.connect(
+            self._on_scan_failed
+        )
+
+    # ==================================================================
+    # EMPTY STATE
+    # ==================================================================
+
+    def _create_empty_page(self):
+        page = QWidget()
+
+        layout = QVBoxLayout(page)
+        layout.setAlignment(Qt.AlignCenter)
         layout.setSpacing(12)
 
-        self.stat_files = self._stat_card("Files Tracked", "0")
-        self.stat_cats  = self._stat_card("Categories", "11")
-        self.stat_ops   = self._stat_card("Operations", "0")
+        title = QLabel(
+            "Organize your files with DesktopAI"
+        )
+        title.setAlignment(Qt.AlignCenter)
+        title.setObjectName("PageTitle")
 
-        layout.addWidget(self.stat_files)
-        layout.addWidget(self.stat_cats)
-        layout.addWidget(self.stat_ops)
+        subtitle = QLabel(
+            "Scan a folder to classify files, build an organization plan, "
+            "and make them searchable."
+        )
+        subtitle.setAlignment(Qt.AlignCenter)
+        subtitle.setObjectName("PageSubtitle")
+        subtitle.setWordWrap(True)
 
-        return row
+        self.drop_zone = MagneticDropZone()
 
-    def _stat_card(self, label: str, value: str) -> QFrame:
+        self.drop_zone.folder_selected.connect(
+            self._on_folder_selected
+        )
+
+        layout.addWidget(title)
+        layout.addWidget(subtitle)
+        layout.addSpacing(20)
+        layout.addWidget(
+            self.drop_zone,
+            alignment=Qt.AlignCenter,
+        )
+
+        self.stack.addWidget(page)
+
+    # ==================================================================
+    # RESULTS PAGE
+    # ==================================================================
+
+    def _create_results_page(self):
+        page = QWidget()
+
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(14)
+
+        self.stats_layout = QHBoxLayout()
+        self.stats_layout.setSpacing(12)
+
+        self.files_stat = self._create_stat_card(
+            "Files Tracked",
+            "0",
+        )
+
+        self.categories_stat = self._create_stat_card(
+            "Categories",
+            "0",
+        )
+
+        self.operations_stat = self._create_stat_card(
+            "Operations",
+            "0",
+        )
+
+        self.stats_layout.addWidget(
+            self.files_stat,
+            1,
+        )
+
+        self.stats_layout.addWidget(
+            self.categories_stat,
+            1,
+        )
+
+        self.stats_layout.addWidget(
+            self.operations_stat,
+            1,
+        )
+
+        layout.addLayout(
+            self.stats_layout
+        )
+
+        self.scan_status = QLabel(
+            "No scan loaded."
+        )
+        self.scan_status.setObjectName("PageSubtitle")
+
+        layout.addWidget(
+            self.scan_status
+        )
+
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 100)
+        self.progress.setVisible(False)
+
+        layout.addWidget(
+            self.progress
+        )
+
+        self.table = QTableWidget()
+
+        self.table.setColumnCount(4)
+
+        self.table.setHorizontalHeaderLabels(
+            [
+                "File Name",
+                "Category",
+                "Confidence",
+                "Size",
+            ]
+        )
+
+        self.table.horizontalHeader().setSectionResizeMode(
+            0,
+            QHeaderView.Stretch,
+        )
+
+        self.table.horizontalHeader().setSectionResizeMode(
+            1,
+            QHeaderView.ResizeToContents,
+        )
+
+        self.table.horizontalHeader().setSectionResizeMode(
+            2,
+            QHeaderView.ResizeToContents,
+        )
+
+        self.table.horizontalHeader().setSectionResizeMode(
+            3,
+            QHeaderView.ResizeToContents,
+        )
+
+        self.table.setSelectionBehavior(
+            QTableWidget.SelectRows
+        )
+
+        self.table.setEditTriggers(
+            QTableWidget.NoEditTriggers
+        )
+
+        self.table.setAlternatingRowColors(True)
+
+        self.table.cellDoubleClicked.connect(
+            self._open_file
+        )
+
+        layout.addWidget(
+            self.table,
+            1,
+        )
+
+        footer = QHBoxLayout()
+
+        self.scan_again_button = QPushButton(
+            "Scan Another Folder"
+        )
+
+        self.scan_again_button.setObjectName(
+            "SecondaryButton"
+        )
+
+        self.scan_again_button.clicked.connect(
+            self._show_empty
+        )
+
+        footer.addStretch()
+        footer.addWidget(
+            self.scan_again_button
+        )
+
+        layout.addLayout(
+            footer
+        )
+
+        self.stack.addWidget(page)
+
+    # ==================================================================
+    # STAT CARD
+    # ==================================================================
+
+    def _create_stat_card(
+        self,
+        label: str,
+        value: str,
+    ) -> QFrame:
+
         card = QFrame()
         card.setObjectName("StatCard")
 
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(16, 14, 16, 14)
-        layout.setSpacing(4)
+        layout.setContentsMargins(
+            18,
+            16,
+            18,
+            16,
+        )
 
-        val_lbl = QLabel(value)
-        val_lbl.setObjectName("StatValue")
-        layout.addWidget(val_lbl)
+        value_label = QLabel(value)
+        value_label.setObjectName(
+            "StatValue"
+        )
 
-        lbl = QLabel(label)
-        lbl.setObjectName("StatLabel")
-        layout.addWidget(lbl)
+        label_widget = QLabel(label)
+        label_widget.setObjectName(
+            "StatLabel"
+        )
 
-        # Store reference for updates
-        card._value_label = val_lbl
+        layout.addWidget(
+            value_label
+        )
+
+        layout.addWidget(
+            label_widget
+        )
+
+        card.value_label = value_label
+
         return card
 
-    def _build_drop_page(self) -> QWidget:
-        """Drop zone hero page."""
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setAlignment(Qt.AlignCenter)
-        layout.setSpacing(12)
+    # ==================================================================
+    # SCAN
+    # ==================================================================
 
-        subtitle = QLabel("Drop a folder to begin AI-powered organization")
-        subtitle.setAlignment(Qt.AlignCenter)
-        subtitle.setStyleSheet("color: #A1A1A6; font-size: 13px;")
-        layout.addWidget(subtitle)
+    def _on_folder_selected(
+        self,
+        path: str,
+    ):
 
-        self.drop_zone = MagneticDropZone()
-        self.drop_zone.folder_selected.connect(self._on_folder_selected)
-        layout.addWidget(self.drop_zone, alignment=Qt.AlignCenter)
+        if not Path(path).is_dir():
+            self._on_scan_failed(
+                "The selected path is not a folder."
+            )
+            return
 
-        return page
+        self.current_scan_path = path
+        self.results = []
 
-    def _build_results_page(self) -> QWidget:
-        """Results table page."""
-        page = QWidget()
-        layout = QVBoxLayout(page)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
-
-        # Sub-header
-        self.results_label = QLabel("Analyzing files...")
-        self.results_label.setStyleSheet("color: #A1A1A6; font-size: 13px;")
-        layout.addWidget(self.results_label)
-
-        # Results table in a card
-        card = QFrame()
-        card.setObjectName("Card")
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(0, 0, 0, 0)
-
-        self.table = QTableWidget()
-        self.table.setColumnCount(3)
-        self.table.setHorizontalHeaderLabels(["File Name", "Category", "Confidence"])
-        self.table.setAlternatingRowColors(True)
-        self.table.setShowGrid(False)
-        self.table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.table.setSelectionBehavior(QTableWidget.SelectRows)
-        self.table.verticalHeader().setVisible(False)
-
-        header = self.table.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.Stretch)
-        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(2, QHeaderView.ResizeToContents)
-
-        card_layout.addWidget(self.table)
-        layout.addWidget(card, 1)
-
-        # Footer
-        footer = QHBoxLayout()
-        footer.addStretch()
-
-        back_btn = QPushButton("Scan Another Folder")
-        back_btn.setObjectName("SecondaryButton")
-        back_btn.clicked.connect(lambda: self.stack.setCurrentIndex(0))
-        footer.addWidget(back_btn)
-
-        layout.addLayout(footer)
-        return page
-
-    def _connect_signals(self) -> None:
-        self.vm.scan_progress.connect(self._on_scan_progress)
-        self.vm.scan_completed.connect(self._on_scan_completed)
-        self.vm.scan_failed.connect(self._on_scan_failed)
-
-    def _refresh_stats(self) -> None:
-        """Pull live stats from the database."""
-        try:
-            stats = DB.get_stats()
-            self.stat_files._value_label.setText(str(stats["total_files"]))
-            self.stat_ops._value_label.setText(str(stats["total_operations"]))
-        except Exception:
-            pass
-
-    # ── Handlers ───────────────────────────────────────────────────
-
-    def _on_folder_selected(self, path: str) -> None:
-        logger.info("Folder selected: %s", path)
-        self.vm.start_scan(path)
         self.table.setRowCount(0)
-        self.results_label.setText("Scanning files...")
+
+        self.progress.setVisible(True)
+        self.progress.setValue(0)
+
+        self.scan_status.setText(
+            f"Scanning: {path}"
+        )
+
         self.stack.setCurrentIndex(1)
 
-    def _on_scan_progress(self, done: int, total: int) -> None:
-        self.results_label.setText(f"Classifying files... ({done} / {total})")
+        self.vm.start_scan(path)
 
-    def _on_scan_completed(self, results: list) -> None:
-        self.results_label.setText(
-            f"Scan complete — {len(results)} files analyzed"
+    def _on_scan_progress(
+        self,
+        done: int,
+        total: int,
+    ):
+
+        if total > 0:
+            percentage = int(
+                (done / total) * 100
+            )
+
+            self.progress.setValue(
+                percentage
+            )
+
+        self.scan_status.setText(
+            f"Analyzing files — {done}/{total}"
         )
-        self.table.setRowCount(len(results))
-        self._refresh_stats()
+
+    def _on_scan_completed(
+        self,
+        results: list,
+    ):
+
+        self.results = results
+
+        self.progress.setVisible(False)
+
+        self._populate_results(
+            results
+        )
+
+        count = len(results)
+
+        categories = {
+            result.category
+            for result in results
+            if result.category
+        }
+
+        operations = 0
+
+        try:
+            history = DB.get_history(
+                limit=10000
+            )
+
+            operations = len(
+                [
+                    item
+                    for item in history
+                    if item.get("status")
+                    in {
+                        "completed",
+                        "undone",
+                    }
+                ]
+            )
+
+        except Exception as exc:
+            logger.debug(
+                "Unable to read operation history: %s",
+                exc,
+            )
+
+        self.files_stat.value_label.setText(
+            str(count)
+        )
+
+        self.categories_stat.value_label.setText(
+            str(len(categories))
+        )
+
+        self.operations_stat.value_label.setText(
+            str(operations)
+        )
+
+        self.scan_status.setText(
+            f"Scan complete — {count} files analyzed"
+        )
+
+        if self.current_scan_path:
+            self.scan_ready.emit(
+                self.current_scan_path,
+                results,
+            )
+
+    def _populate_results(
+        self,
+        results: list,
+    ):
+
+        self.table.setRowCount(
+            len(results)
+        )
 
         for row, result in enumerate(results):
-            # Filename
-            self.table.setItem(row, 0,
-                QTableWidgetItem(result.file_info.filename))
 
-            # Category
-            self.table.setItem(row, 1,
-                QTableWidgetItem(result.category))
+            file_info = result.file_info
 
-            # Confidence pill-style
-            pct = int(result.confidence * 100)
-            conf_item = QTableWidgetItem(f"{pct}%")
-            if pct >= 80:
-                conf_item.setForeground(Qt.green)
-            elif pct >= 50:
-                conf_item.setForeground(Qt.yellow)
-            else:
-                conf_item.setForeground(Qt.red)
-            self.table.setItem(row, 2, conf_item)
+            self.table.setItem(
+                row,
+                0,
+                QTableWidgetItem(
+                    file_info.filename
+                ),
+            )
 
-    def _on_scan_failed(self, msg: str) -> None:
-        self.results_label.setText(f"Scan failed: {msg}")
-        logger.error("Scan failed: %s", msg)
+            self.table.setItem(
+                row,
+                1,
+                QTableWidgetItem(
+                    result.category
+                ),
+            )
+
+            confidence = int(
+                result.confidence * 100
+            )
+
+            self.table.setItem(
+                row,
+                2,
+                QTableWidgetItem(
+                    f"{confidence}%"
+                ),
+            )
+
+            self.table.setItem(
+                row,
+                3,
+                QTableWidgetItem(
+                    file_info.display_size
+                ),
+            )
+
+    def _on_scan_failed(
+        self,
+        error: str,
+    ):
+
+        self.progress.setVisible(False)
+
+        self.scan_status.setText(
+            f"Scan failed — {error}"
+        )
+
+        logger.error(
+            "HomeView scan failed: %s",
+            error,
+        )
+
+    def _show_empty(self):
+
+        self.stack.setCurrentIndex(0)
+
+    def _open_file(
+        self,
+        row: int,
+        _column: int,
+    ):
+
+        if row < 0 or row >= len(self.results):
+            return
+
+        path = self.results[row].file_info.path
+
+        if path.exists():
+            QDesktopServices.openUrl(
+                QUrl.fromLocalFile(
+                    str(path)
+                )
+            )

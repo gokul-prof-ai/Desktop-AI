@@ -1,202 +1,350 @@
 """
-DesktopAI v2.0 — Settings View (App Shell UI)
-File: src/gui/views/settings_view.py
-
-Settings-type layout:
-  - AI Configuration section
-  - Scanner section
-  - About section
+DesktopAI v2.0
+AI Chat workspace.
 """
+
 from __future__ import annotations
 
+from PySide6.QtCore import QThread, Signal, Qt
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QFrame, QPushButton, QComboBox, QScrollArea,
-    QSizePolicy,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QTextBrowser,
+    QLineEdit,
+    QPushButton,
 )
-from PySide6.QtCore import Qt
-
-from infrastructure.config.settings import Settings
-
-_PAD = 24
 
 
-class SettingsView(QWidget):
-    """Application settings screen."""
+class ChatWorker(QThread):
 
-    def __init__(self) -> None:
-        super().__init__()
-        self._setup_ui()
+    completed = Signal(str)
+    failed = Signal(str)
 
-    def _setup_ui(self) -> None:
-        root = QVBoxLayout(self)
-        root.setContentsMargins(_PAD, _PAD, _PAD, _PAD)
-        root.setSpacing(16)
-
-        # Sub-header
-        sub = QLabel("Configure AI models, scanner behaviour, and preferences.")
-        sub.setStyleSheet("color: #A1A1A6; font-size: 13px;")
-        root.addWidget(sub)
-
-        # Scrollable settings area
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setStyleSheet("background: transparent; border: none;")
-
-        inner = QWidget()
-        inner.setStyleSheet("background: transparent;")
-        inner_layout = QVBoxLayout(inner)
-        inner_layout.setContentsMargins(0, 0, 0, 0)
-        inner_layout.setSpacing(12)
-
-        inner_layout.addWidget(self._build_ai_section())
-        inner_layout.addWidget(self._build_scanner_section())
-        inner_layout.addWidget(self._build_about_section())
-        inner_layout.addStretch()
-
-        scroll.setWidget(inner)
-        root.addWidget(scroll, 1)
-
-    # ── Sections ───────────────────────────────────────────────────
-
-    def _build_ai_section(self) -> QFrame:
-        card = QFrame()
-        card.setObjectName("Card")
-
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(20, 16, 20, 16)
-        layout.setSpacing(0)
-
-        layout.addWidget(self._section_title("AI Configuration"))
-        layout.addSpacing(12)
-        layout.addWidget(self._separator())
-        layout.addSpacing(12)
-
-        layout.addWidget(
-            self._row("Model", Settings.ai.model,
-                      right=self._model_combo())
-        )
-        layout.addWidget(self._separator())
-        layout.addWidget(
-            self._row("Fast Model", Settings.ai.model_fast)
-        )
-        layout.addWidget(self._separator())
-        layout.addWidget(
-            self._row("Ollama Host", Settings.ai.host)
-        )
-
-        return card
-
-    def _build_scanner_section(self) -> QFrame:
-        card = QFrame()
-        card.setObjectName("Card")
-
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(20, 16, 20, 16)
-        layout.setSpacing(0)
-
-        layout.addWidget(self._section_title("Scanner"))
-        layout.addSpacing(12)
-        layout.addWidget(self._separator())
-        layout.addSpacing(12)
-
-        layout.addWidget(
-            self._row("Max Depth", str(Settings.scanner.max_depth))
-        )
-        layout.addWidget(self._separator())
-        layout.addWidget(
-            self._row("Max Workers", str(Settings.scanner.max_workers))
-        )
-        layout.addWidget(self._separator())
-        layout.addWidget(
-            self._row("Skip Hidden Files",
-                      "Yes" if Settings.scanner.skip_hidden else "No")
-        )
-        layout.addWidget(self._separator())
-        layout.addWidget(
-            self._row("OCR Enabled",
-                      "Yes" if Settings.ocr.enabled else "No")
-        )
-
-        return card
-
-    def _build_about_section(self) -> QFrame:
-        card = QFrame()
-        card.setObjectName("Card")
-
-        layout = QVBoxLayout(card)
-        layout.setContentsMargins(20, 16, 20, 16)
-        layout.setSpacing(0)
-
-        layout.addWidget(self._section_title("About"))
-        layout.addSpacing(12)
-        layout.addWidget(self._separator())
-        layout.addSpacing(12)
-
-        from core.constants import APP_VERSION
-        layout.addWidget(self._row("Version", f"v{APP_VERSION}"))
-        layout.addWidget(self._separator())
-        layout.addWidget(self._row("Architecture", "4-layer clean arch (V2)"))
-        layout.addWidget(self._separator())
-        layout.addWidget(self._row("Categories", f"{len(Settings.categories)} rules loaded"))
-
-        return card
-
-    # ── Helpers ────────────────────────────────────────────────────
-
-    def _section_title(self, text: str) -> QLabel:
-        lbl = QLabel(text)
-        lbl.setStyleSheet(
-            "color: #F5F5F7; font-size: 13px; font-weight: 600;"
-        )
-        return lbl
-
-    def _separator(self) -> QFrame:
-        sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
-        sep.setFixedHeight(1)
-        sep.setStyleSheet(
-            "background: rgba(255,255,255,0.08); border: none;"
-        )
-        return sep
-
-    def _row(
+    def __init__(
         self,
-        label: str,
-        value: str = "",
-        right: QWidget | None = None,
-    ) -> QWidget:
-        row = QWidget()
-        row.setStyleSheet("background: transparent;")
-        row.setFixedHeight(44)
+        prompt: str,
+        context: str,
+        parent=None,
+    ):
+        super().__init__(parent)
 
-        layout = QHBoxLayout(row)
-        layout.setContentsMargins(0, 0, 0, 0)
+        self.prompt = prompt
+        self.context = context
 
-        lbl = QLabel(label)
-        lbl.setStyleSheet("color: #F5F5F7; font-size: 13px;")
-        layout.addWidget(lbl)
+    def run(self):
 
-        layout.addStretch()
+        try:
 
-        if right:
-            layout.addWidget(right)
-        else:
-            val = QLabel(value)
-            val.setStyleSheet("color: #6C6C70; font-size: 13px;")
-            layout.addWidget(val)
+            from infrastructure.ai.gateway import (
+                AIGateway,
+                GenerateRequest,
+            )
 
-        return row
+            system_prompt = """
+You are DesktopAI, a local-first desktop file assistant.
 
-    def _model_combo(self) -> QComboBox:
-        combo = QComboBox()
-        combo.addItems([
-            "llama3.2",
-            "llama3.2:1b",
-            "mistral",
-            "gemma2",
-        ])
-        combo.setCurrentText(Settings.ai.model)
-        combo.setFixedWidth(140)
-        return combo
+You help users:
+- understand their files
+- explain organization results
+- find files
+- recommend organization strategies
+- answer questions about the current scanned folder
+
+Never claim that a file operation happened unless the application
+actually executed it.
+
+Be concise, practical and accurate.
+"""
+
+            full_prompt = (
+                f"{system_prompt}\n\n"
+                f"Current application context:\n"
+                f"{self.context}\n\n"
+                f"User request:\n"
+                f"{self.prompt}"
+            )
+
+            response = AIGateway.generate(
+                GenerateRequest(
+                    prompt=full_prompt,
+                    model_hint="default",
+                    temperature=0.2,
+                    max_tokens=1000,
+                )
+            )
+
+            self.completed.emit(
+                response.text.strip()
+            )
+
+        except Exception as exc:
+
+            self.failed.emit(
+                str(exc)
+            )
+
+
+class ChatView(QWidget):
+
+    def __init__(self):
+        super().__init__()
+
+        self.scan_context = (
+            "No folder has been scanned yet."
+        )
+
+        self.worker = None
+
+        layout = QVBoxLayout(self)
+
+        layout.setContentsMargins(
+            0,
+            0,
+            0,
+            0,
+        )
+
+        layout.setSpacing(12)
+
+        self.chat = QTextBrowser()
+
+        self.chat.setOpenExternalLinks(
+            True
+        )
+
+        self._append_message(
+            "DesktopAI",
+            (
+                "I am ready. Ask me about your scanned files, "
+                "organization plan, categories or folder structure."
+            ),
+        )
+
+        layout.addWidget(
+            self.chat,
+            1,
+        )
+
+        composer = QHBoxLayout()
+
+        self.input = QLineEdit()
+
+        self.input.setPlaceholderText(
+            "Ask DesktopAI..."
+        )
+
+        self.input.returnPressed.connect(
+            self._send
+        )
+
+        self.send_button = QPushButton(
+            "Send"
+        )
+
+        self.send_button.setObjectName(
+            "PrimaryButton"
+        )
+
+        self.send_button.clicked.connect(
+            self._send
+        )
+
+        composer.addWidget(
+            self.input,
+            1,
+        )
+
+        composer.addWidget(
+            self.send_button
+        )
+
+        layout.addLayout(
+            composer
+        )
+
+    # ==================================================================
+    # CONTEXT
+    # ==================================================================
+
+    def set_scan_context(
+        self,
+        scan_path: str,
+        results: list,
+    ):
+
+        categories = sorted(
+            {
+                result.category
+                for result in results
+                if result.category
+            }
+        )
+
+        filenames = [
+            result.file_info.filename
+            for result in results[:50]
+        ]
+
+        self.scan_context = (
+            f"Scanned folder: {scan_path}\n"
+            f"Files analyzed: {len(results)}\n"
+            f"Categories: {', '.join(categories)}\n"
+            f"Sample files: {', '.join(filenames)}"
+        )
+
+    # ==================================================================
+    # SEND
+    # ==================================================================
+
+    def _send(self):
+
+        prompt = (
+            self.input.text()
+            .strip()
+        )
+
+        if not prompt:
+            return
+
+        self.input.clear()
+
+        self._append_message(
+            "You",
+            prompt,
+        )
+
+        self._append_message(
+            "DesktopAI",
+            "Thinking...",
+        )
+
+        self.input.setEnabled(
+            False
+        )
+
+        self.send_button.setEnabled(
+            False
+        )
+
+        self.worker = ChatWorker(
+            prompt,
+            self.scan_context,
+        )
+
+        self.worker.completed.connect(
+            self._on_completed
+        )
+
+        self.worker.failed.connect(
+            self._on_failed
+        )
+
+        self.worker.finished.connect(
+            self._worker_finished
+        )
+
+        self.worker.start()
+
+    def _on_completed(
+        self,
+        response: str,
+    ):
+
+        self._remove_last_thinking_message()
+
+        self._append_message(
+            "DesktopAI",
+            response,
+        )
+
+    def _on_failed(
+        self,
+        error: str,
+    ):
+
+        self._remove_last_thinking_message()
+
+        self._append_message(
+            "DesktopAI",
+            f"AI request failed: {error}",
+        )
+
+    def _worker_finished(self):
+
+        self.input.setEnabled(
+            True
+        )
+
+        self.send_button.setEnabled(
+            True
+        )
+
+        self.input.setFocus()
+
+        self.worker = None
+
+    # ==================================================================
+    # MESSAGE UI
+    # ==================================================================
+
+    def _append_message(
+        self,
+        sender: str,
+        text: str,
+    ):
+
+        safe_text = (
+            text
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\n", "<br>")
+        )
+
+        color = (
+            "var(--primary)"
+        )
+
+        self.chat.append(
+            f"""
+            <p>
+                <b>{sender}</b>
+            </p>
+            <p>{safe_text}</p>
+            """
+        )
+
+    def _remove_last_thinking_message(self):
+
+        cursor = self.chat.textCursor()
+
+        cursor.movePosition(
+            cursor.MoveOperation.End
+        )
+
+        document = self.chat.document()
+
+        text = document.toPlainText()
+
+        if "Thinking..." not in text:
+            return
+
+        # Rebuild is safer than manipulating arbitrary QTextBlocks.
+        lines = text.splitlines()
+
+        while lines and (
+            lines[-1].strip() == ""
+            or lines[-1].strip() == "Thinking..."
+        ):
+            lines.pop()
+
+        self.chat.clear()
+
+        if not lines:
+            return
+
+        self.chat.setPlainText(
+            "\n".join(lines)
+        )

@@ -1,176 +1,579 @@
 """
-DesktopAI v2.0 — Organize View (App Shell UI)
-File: src/gui/views/organize_view.py
-
-Settings-type layout:
-  - Header (title + subtitle)
-  - Status card (what to do)
-  - Two-col: plan preview | action panel
+DesktopAI v2.0
+Organization workspace.
 """
+
 from __future__ import annotations
 
-from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QFrame, QPushButton, QSizePolicy,
-)
-from PySide6.QtCore import Qt
+import csv
+import uuid
+from pathlib import Path
 
-_PAD = 24
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QFrame,
+    QTableWidget,
+    QTableWidgetItem,
+    QHeaderView,
+    QMessageBox,
+    QFileDialog,
+)
+
+from domain.organizer.planner import OrganizationPlanner
+from domain.organizer.organizer import AutoOrganizer
 
 
 class OrganizeView(QWidget):
-    """Organize screen — review AI plan, apply or undo."""
 
-    def __init__(self) -> None:
+    def __init__(self):
         super().__init__()
-        self._setup_ui()
 
-    def _setup_ui(self) -> None:
-        root = QVBoxLayout(self)
-        root.setContentsMargins(_PAD, _PAD, _PAD, _PAD)
-        root.setSpacing(16)
+        self.scan_path: Path | None = None
+        self.results: list = []
+        self.actions: list = []
+        self.organizer = AutoOrganizer()
+        self.batch_id: str | None = None
 
-        # ── Sub-header ─────────────────────────────────────────────
-        sub = QLabel("Review AI categorization and apply changes to your folder.")
-        sub.setStyleSheet("color: #A1A1A6; font-size: 13px;")
-        root.addWidget(sub)
-
-        # ── Status banner card ─────────────────────────────────────
-        banner = self._build_banner()
-        root.addWidget(banner)
-
-        # ── Two-column: plan list | action panel ───────────────────
-        two_col = QHBoxLayout()
-        two_col.setSpacing(12)
-
-        plan_panel = self._build_plan_panel()
-        action_panel = self._build_action_panel()
-
-        two_col.addWidget(plan_panel, 3)
-        two_col.addWidget(action_panel, 1)
-
-        root.addLayout(two_col, 1)
-
-    def _build_banner(self) -> QFrame:
-        """Info banner — tells user what to do next."""
-        card = QFrame()
-        card.setObjectName("Card")
-        card.setFixedHeight(72)
-
-        layout = QHBoxLayout(card)
-        layout.setContentsMargins(20, 0, 20, 0)
-
-        icon = QLabel("○")
-        icon.setStyleSheet("color: #0A84FF; font-size: 18px;")
-        layout.addWidget(icon)
-
-        layout.addSpacing(12)
-
-        text_col = QVBoxLayout()
-        text_col.setSpacing(2)
-
-        title = QLabel("No scan loaded")
-        title.setStyleSheet("color: #F5F5F7; font-size: 13px; font-weight: 600;")
-        text_col.addWidget(title)
-
-        desc = QLabel("Go to Home, drop a folder, then return here to review and apply the organization plan.")
-        desc.setStyleSheet("color: #A1A1A6; font-size: 12px;")
-        text_col.addWidget(desc)
-
-        layout.addLayout(text_col)
-        layout.addStretch()
-
-        return card
-
-    def _build_plan_panel(self) -> QFrame:
-        """Left panel — shows file plan list."""
-        panel = QFrame()
-        panel.setObjectName("Card")
-        panel.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(20, 16, 20, 16)
-        layout.setSpacing(12)
-
-        # Panel header
-        header = QHBoxLayout()
-        title = QLabel("Organization Plan")
-        title.setStyleSheet(
-            "color: #F5F5F7; font-size: 13px; font-weight: 600;"
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(
+            0,
+            0,
+            0,
+            0,
         )
+        layout.setSpacing(14)
+
+        self.status_card = QFrame()
+        self.status_card.setObjectName(
+            "Card"
+        )
+
+        status_layout = QVBoxLayout(
+            self.status_card
+        )
+
+        self.status_title = QLabel(
+            "No scan loaded"
+        )
+        self.status_title.setObjectName(
+            "Heading"
+        )
+
+        self.status_text = QLabel(
+            "Scan a folder from Home first."
+        )
+        self.status_text.setObjectName(
+            "Muted"
+        )
+        self.status_text.setWordWrap(True)
+
+        status_layout.addWidget(
+            self.status_title
+        )
+
+        status_layout.addWidget(
+            self.status_text
+        )
+
+        layout.addWidget(
+            self.status_card
+        )
+
+        self.plan_card = QFrame()
+        self.plan_card.setObjectName(
+            "Card"
+        )
+
+        plan_layout = QVBoxLayout(
+            self.plan_card
+        )
+
+        header = QHBoxLayout()
+
+        title = QLabel(
+            "Organization Plan"
+        )
+        title.setObjectName(
+            "Heading"
+        )
+
+        self.count_label = QLabel(
+            "0 files"
+        )
+        self.count_label.setObjectName(
+            "Muted"
+        )
+
         header.addWidget(title)
         header.addStretch()
-
-        count = QLabel("0 files")
-        count.setStyleSheet("color: #6C6C70; font-size: 12px;")
-        header.addWidget(count)
-
-        layout.addLayout(header)
-
-        # Separator
-        sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
-        sep.setStyleSheet(
-            "background: rgba(255,255,255,0.08); border: none; max-height: 1px;"
+        header.addWidget(
+            self.count_label
         )
-        layout.addWidget(sep)
 
-        # Empty state
-        empty = QLabel("Scan a folder on the Home screen to see\nthe AI organization plan here.")
-        empty.setAlignment(Qt.AlignCenter)
-        empty.setStyleSheet(
-            "color: #6C6C70; font-size: 13px; line-height: 1.6;"
+        plan_layout.addLayout(
+            header
         )
-        layout.addWidget(empty, 1, Qt.AlignCenter)
 
-        return panel
+        self.table = QTableWidget()
 
-    def _build_action_panel(self) -> QFrame:
-        """Right panel — apply / undo actions."""
-        panel = QFrame()
-        panel.setObjectName("Card")
-        panel.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
-        panel.setFixedWidth(220)
+        self.table.setColumnCount(4)
 
-        layout = QVBoxLayout(panel)
-        layout.setContentsMargins(20, 16, 20, 16)
-        layout.setSpacing(12)
-
-        title = QLabel("Actions")
-        title.setStyleSheet(
-            "color: #F5F5F7; font-size: 13px; font-weight: 600;"
+        self.table.setHorizontalHeaderLabels(
+            [
+                "File",
+                "Category",
+                "Destination",
+                "Confidence",
+            ]
         )
-        layout.addWidget(title)
 
-        sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
-        sep.setStyleSheet(
-            "background: rgba(255,255,255,0.08); border: none; max-height: 1px;"
+        self.table.horizontalHeader().setSectionResizeMode(
+            0,
+            QHeaderView.ResizeToContents,
         )
-        layout.addWidget(sep)
 
-        # Action buttons
-        apply_btn = QPushButton("Apply Plan")
-        apply_btn.setObjectName("PrimaryButton")
-        apply_btn.setEnabled(False)
-        layout.addWidget(apply_btn)
+        self.table.horizontalHeader().setSectionResizeMode(
+            1,
+            QHeaderView.ResizeToContents,
+        )
 
-        undo_btn = QPushButton("Undo Last")
-        undo_btn.setObjectName("SecondaryButton")
-        undo_btn.setEnabled(False)
-        layout.addWidget(undo_btn)
+        self.table.horizontalHeader().setSectionResizeMode(
+            2,
+            QHeaderView.Stretch,
+        )
 
-        export_btn = QPushButton("Export Report")
-        export_btn.setObjectName("GhostButton")
-        export_btn.setEnabled(False)
-        layout.addWidget(export_btn)
+        self.table.horizontalHeader().setSectionResizeMode(
+            3,
+            QHeaderView.ResizeToContents,
+        )
 
-        layout.addStretch()
+        self.table.setSelectionBehavior(
+            QTableWidget.SelectRows
+        )
 
-        # Status note
-        note = QLabel("No plan loaded.\nRun a scan first.")
-        note.setAlignment(Qt.AlignCenter)
-        note.setStyleSheet("color: #6C6C70; font-size: 11px;")
-        layout.addWidget(note)
+        self.table.setEditTriggers(
+            QTableWidget.NoEditTriggers
+        )
 
-        return panel
+        plan_layout.addWidget(
+            self.table,
+            1,
+        )
+
+        layout.addWidget(
+            self.plan_card,
+            1,
+        )
+
+        actions_card = QFrame()
+        actions_card.setObjectName(
+            "Card"
+        )
+
+        actions_layout = QHBoxLayout(
+            actions_card
+        )
+
+        self.apply_button = QPushButton(
+            "Apply Plan"
+        )
+        self.apply_button.setObjectName(
+            "PrimaryButton"
+        )
+
+        self.undo_button = QPushButton(
+            "Undo Last"
+        )
+        self.undo_button.setObjectName(
+            "SecondaryButton"
+        )
+
+        self.export_button = QPushButton(
+            "Export Report"
+        )
+        self.export_button.setObjectName(
+            "SecondaryButton"
+        )
+
+        self.apply_button.clicked.connect(
+            self._apply_plan
+        )
+
+        self.undo_button.clicked.connect(
+            self._undo
+        )
+
+        self.export_button.clicked.connect(
+            self._export_report
+        )
+
+        actions_layout.addWidget(
+            self.apply_button
+        )
+
+        actions_layout.addWidget(
+            self.undo_button
+        )
+
+        actions_layout.addWidget(
+            self.export_button
+        )
+
+        actions_layout.addStretch()
+
+        layout.addWidget(
+            actions_card
+        )
+
+        self._set_enabled_state(
+            False
+        )
+
+    # ==================================================================
+    # PUBLIC API
+    # ==================================================================
+
+    def set_scan_context(
+        self,
+        scan_path: str,
+        results: list,
+    ):
+
+        self.scan_path = Path(
+            scan_path
+        )
+
+        self.results = results
+
+        self.actions = []
+        self.batch_id = None
+
+        self._build_plan()
+
+    # ==================================================================
+    # PLAN
+    # ==================================================================
+
+    def _build_plan(self):
+
+        if not self.scan_path:
+            return
+
+        if not self.results:
+            self.status_title.setText(
+                "Scan completed with no files"
+            )
+
+            self.status_text.setText(
+                "There are no files available for organization."
+            )
+
+            self.table.setRowCount(0)
+
+            self._set_enabled_state(
+                False
+            )
+
+            return
+
+        target = (
+            self.scan_path.parent
+            / f"{self.scan_path.name} - Organized"
+        )
+
+        try:
+            planner = OrganizationPlanner()
+
+            files = [
+                result.file_info
+                for result in self.results
+                if not result.skipped
+            ]
+
+            self.actions = planner.create_plan(
+                files,
+                target,
+            )
+
+            self._populate_plan()
+
+            self.status_title.setText(
+                "Organization plan ready"
+            )
+
+            self.status_text.setText(
+                f"{len(self.actions)} safe file operation(s) "
+                f"prepared for review."
+            )
+
+            self._set_enabled_state(
+                bool(self.actions)
+            )
+
+        except Exception as exc:
+
+            self.status_title.setText(
+                "Unable to build plan"
+            )
+
+            self.status_text.setText(
+                str(exc)
+            )
+
+            self._set_enabled_state(
+                False
+            )
+
+    def _populate_plan(self):
+
+        self.table.setRowCount(
+            len(self.actions)
+        )
+
+        for row, action in enumerate(
+            self.actions
+        ):
+
+            self.table.setItem(
+                row,
+                0,
+                QTableWidgetItem(
+                    action.source_path.name
+                ),
+            )
+
+            self.table.setItem(
+                row,
+                1,
+                QTableWidgetItem(
+                    action.category
+                ),
+            )
+
+            self.table.setItem(
+                row,
+                2,
+                QTableWidgetItem(
+                    str(
+                        action.planned_target_path
+                    )
+                ),
+            )
+
+            self.table.setItem(
+                row,
+                3,
+                QTableWidgetItem(
+                    f"{int(action.confidence * 100)}%"
+                ),
+            )
+
+        self.count_label.setText(
+            f"{len(self.actions)} files"
+        )
+
+    # ==================================================================
+    # EXECUTION
+    # ==================================================================
+
+    def _apply_plan(self):
+
+        if not self.actions:
+            return
+
+        answer = QMessageBox.question(
+            self,
+            "Apply Organization Plan",
+            (
+                f"DesktopAI is ready to move "
+                f"{len(self.actions)} file(s).\n\n"
+                "The operation can be undone."
+            ),
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+
+        if answer != QMessageBox.Yes:
+            return
+
+        self.batch_id = str(
+            uuid.uuid4()
+        )
+
+        try:
+
+            stats = self.organizer.execute_plan(
+                self.actions,
+                batch_id=self.batch_id,
+            )
+
+            self.status_title.setText(
+                "Organization completed"
+            )
+
+            self.status_text.setText(
+                f"Successful: {stats['success']}  |  "
+                f"Failed: {stats['failed']}  |  "
+                f"Skipped: {stats['skipped']}"
+            )
+
+            self.apply_button.setEnabled(
+                False
+            )
+
+            QMessageBox.information(
+                self,
+                "DesktopAI",
+                (
+                    f"Organization complete.\n\n"
+                    f"Successful: {stats['success']}\n"
+                    f"Failed: {stats['failed']}\n"
+                    f"Skipped: {stats['skipped']}"
+                ),
+            )
+
+        except Exception as exc:
+
+            QMessageBox.critical(
+                self,
+                "Organization Failed",
+                str(exc),
+            )
+
+    # ==================================================================
+    # UNDO
+    # ==================================================================
+
+    def _undo(self):
+
+        if not self.batch_id:
+            QMessageBox.information(
+                self,
+                "Undo",
+                "There is no organization batch to undo.",
+            )
+            return
+
+        try:
+
+            count = self.organizer.undo_last_batch(
+                self.batch_id
+            )
+
+            self.status_title.setText(
+                "Undo completed"
+            )
+
+            self.status_text.setText(
+                f"{count} operation(s) were reversed."
+            )
+
+            QMessageBox.information(
+                self,
+                "Undo",
+                f"{count} operation(s) were reversed.",
+            )
+
+        except Exception as exc:
+
+            QMessageBox.critical(
+                self,
+                "Undo Failed",
+                str(exc),
+            )
+
+    # ==================================================================
+    # EXPORT
+    # ==================================================================
+
+    def _export_report(self):
+
+        if not self.actions:
+            QMessageBox.information(
+                self,
+                "Export Report",
+                "There is no organization plan to export.",
+            )
+            return
+
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Organization Report",
+            "desktopai_organization_report.csv",
+            "CSV Files (*.csv)",
+        )
+
+        if not path:
+            return
+
+        try:
+
+            with open(
+                path,
+                "w",
+                newline="",
+                encoding="utf-8",
+            ) as handle:
+
+                writer = csv.writer(
+                    handle
+                )
+
+                writer.writerow(
+                    [
+                        "Source",
+                        "Category",
+                        "Destination",
+                        "Confidence",
+                    ]
+                )
+
+                for action in self.actions:
+                    writer.writerow(
+                        [
+                            str(
+                                action.source_path
+                            ),
+                            action.category,
+                            str(
+                                action.planned_target_path
+                            ),
+                            action.confidence,
+                        ]
+                    )
+
+            QMessageBox.information(
+                self,
+                "Export Complete",
+                f"Report saved to:\n{path}",
+            )
+
+        except OSError as exc:
+
+            QMessageBox.critical(
+                self,
+                "Export Failed",
+                str(exc),
+            )
+
+    def _set_enabled_state(
+        self,
+        enabled: bool,
+    ):
+
+        self.apply_button.setEnabled(
+            enabled
+        )
+
+        self.export_button.setEnabled(
+            bool(self.actions)
+        )
+
+        self.undo_button.setEnabled(
+            bool(self.batch_id)
+        )

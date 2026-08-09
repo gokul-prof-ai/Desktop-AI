@@ -1,118 +1,357 @@
 """
-DesktopAI v2.0 — Chat View (App Shell UI)
-File: src/gui/views/chat_view.py
+DesktopAI v2.0
+Search workspace.
 
-Workbench layout:
-  - Chat history card (grows)
-  - Composer bar pinned at bottom
+Uses fast local matching against the current scan first.
+Semantic search can be added without breaking this fallback.
 """
+
 from __future__ import annotations
 
+from pathlib import Path
+
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QTextEdit, QLineEdit, QPushButton, QFrame,
-    QSizePolicy,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QHeaderView,
+    QFrame,
 )
-from PySide6.QtCore import Qt
-
-_PAD = 24
 
 
-class ChatView(QWidget):
-    """AI chat assistant screen."""
+class SearchView(QWidget):
 
-    def __init__(self) -> None:
+    def __init__(self):
         super().__init__()
-        self._setup_ui()
 
-    def _setup_ui(self) -> None:
-        root = QVBoxLayout(self)
-        root.setContentsMargins(_PAD, _PAD, _PAD, _PAD)
-        root.setSpacing(12)
+        self.results = []
 
-        # Sub-header
-        sub = QLabel("Ask DesktopAI anything about your files or organization.")
-        sub.setStyleSheet("color: #A1A1A6; font-size: 13px;")
-        root.addWidget(sub)
+        layout = QVBoxLayout(self)
 
-        # ── Chat history card ──────────────────────────────────────
-        history_card = QFrame()
-        history_card.setObjectName("Card")
-        history_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-
-        card_layout = QVBoxLayout(history_card)
-        card_layout.setContentsMargins(16, 16, 16, 16)
-        card_layout.setSpacing(0)
-
-        self.chat_area = QTextEdit()
-        self.chat_area.setReadOnly(True)
-        self.chat_area.setFrameShape(QFrame.NoFrame)
-        self.chat_area.setStyleSheet(
-            "background: transparent; color: #F5F5F7; font-size: 13px; border: none;"
+        layout.setContentsMargins(
+            0,
+            0,
+            0,
+            0,
         )
-        self.chat_area.setHtml(self._welcome_html())
-        card_layout.addWidget(self.chat_area)
 
-        root.addWidget(history_card, 1)
+        layout.setSpacing(14)
 
-        # ── Composer bar ───────────────────────────────────────────
-        composer = QFrame()
-        composer.setObjectName("Card")
-        composer.setFixedHeight(52)
+        toolbar = QHBoxLayout()
 
-        bar = QHBoxLayout(composer)
-        bar.setContentsMargins(12, 0, 12, 0)
-        bar.setSpacing(8)
+        self.search_input = QLineEdit()
 
-        self.input_field = QLineEdit()
-        self.input_field.setPlaceholderText("Message DesktopAI...")
-        self.input_field.setStyleSheet(
-            "background: transparent; border: none; "
-            "color: #F5F5F7; font-size: 13px;"
+        self.search_input.setPlaceholderText(
+            "Search files by name, category, extension or path..."
         )
-        self.input_field.returnPressed.connect(self._send_message)
-        bar.addWidget(self.input_field, 1)
 
-        send_btn = QPushButton("Send")
-        send_btn.setObjectName("PrimaryButton")
-        send_btn.setFixedWidth(64)
-        send_btn.clicked.connect(self._send_message)
-        bar.addWidget(send_btn)
+        self.search_input.returnPressed.connect(
+            self._search
+        )
 
-        root.addWidget(composer)
+        self.search_button = QPushButton(
+            "Search"
+        )
 
-    def _welcome_html(self) -> str:
-        return """
-        <div style='font-family: -apple-system, Segoe UI, sans-serif; padding: 8px;'>
-            <p style='color: #0A84FF; font-weight: 600; margin: 0 0 6px 0;
-                      font-size: 13px;'>DesktopAI</p>
-            <p style='color: #A1A1A6; margin: 0; font-size: 13px; line-height: 1.6;'>
-                Hello! I can help you organize files, find documents,
-                or explain your folder structure. What would you like to do?
-            </p>
-        </div>
-        """
+        self.search_button.setObjectName(
+            "PrimaryButton"
+        )
 
-    def _send_message(self) -> None:
-        text = self.input_field.text().strip()
-        if not text:
+        self.search_button.clicked.connect(
+            self._search
+        )
+
+        toolbar.addWidget(
+            self.search_input,
+            1,
+        )
+
+        toolbar.addWidget(
+            self.search_button
+        )
+
+        layout.addLayout(
+            toolbar
+        )
+
+        self.status = QLabel(
+            "Scan a folder from Home to build the local search context."
+        )
+
+        self.status.setObjectName(
+            "PageSubtitle"
+        )
+
+        layout.addWidget(
+            self.status
+        )
+
+        card = QFrame()
+        card.setObjectName(
+            "Card"
+        )
+
+        card_layout = QVBoxLayout(
+            card
+        )
+
+        self.table = QTableWidget()
+
+        self.table.setColumnCount(4)
+
+        self.table.setHorizontalHeaderLabels(
+            [
+                "File",
+                "Category",
+                "Confidence",
+                "Path",
+            ]
+        )
+
+        self.table.horizontalHeader().setSectionResizeMode(
+            0,
+            QHeaderView.ResizeToContents,
+        )
+
+        self.table.horizontalHeader().setSectionResizeMode(
+            1,
+            QHeaderView.ResizeToContents,
+        )
+
+        self.table.horizontalHeader().setSectionResizeMode(
+            2,
+            QHeaderView.ResizeToContents,
+        )
+
+        self.table.horizontalHeader().setSectionResizeMode(
+            3,
+            QHeaderView.Stretch,
+        )
+
+        self.table.setEditTriggers(
+            QTableWidget.NoEditTriggers
+        )
+
+        self.table.setSelectionBehavior(
+            QTableWidget.SelectRows
+        )
+
+        self.table.cellDoubleClicked.connect(
+            self._open_file
+        )
+
+        card_layout.addWidget(
+            self.table
+        )
+
+        layout.addWidget(
+            card,
+            1,
+        )
+
+    # ==================================================================
+    # STATE
+    # ==================================================================
+
+    def set_scan_context(
+        self,
+        _scan_path: str,
+        results: list,
+    ):
+
+        self.results = results
+
+        self.status.setText(
+            f"{len(results)} scanned file(s) available for search."
+        )
+
+        self._search()
+
+    # ==================================================================
+    # SEARCH
+    # ==================================================================
+
+    def _search(self):
+
+        query = (
+            self.search_input.text()
+            .strip()
+            .lower()
+        )
+
+        if not query:
+            self._show_results(
+                self.results
+            )
+
             return
 
-        # Append user message
-        self.chat_area.append(
-            f"<div style='margin: 12px 0 4px 0;'>"
-            f"<p style='color: #F5F5F7; font-weight: 600; margin: 0 0 4px 0; font-size: 13px;'>You</p>"
-            f"<p style='color: #F5F5F7; margin: 0; font-size: 13px;'>{text}</p>"
-            f"</div>"
+        tokens = [
+            token
+            for token in query.split()
+            if token
+        ]
+
+        scored = []
+
+        for result in self.results:
+
+            file_info = result.file_info
+
+            filename = (
+                file_info.filename.lower()
+            )
+
+            category = (
+                result.category.lower()
+            )
+
+            extension = (
+                file_info.extension.lower()
+            )
+
+            path = (
+                str(file_info.path).lower()
+            )
+
+            haystack = (
+                f"{filename} "
+                f"{category} "
+                f"{extension} "
+                f"{path}"
+            )
+
+            score = 0
+
+            if query in filename:
+                score += 100
+
+            if query in category:
+                score += 80
+
+            if query in extension:
+                score += 60
+
+            if query in path:
+                score += 40
+
+            for token in tokens:
+                if token in filename:
+                    score += 25
+
+                if token in category:
+                    score += 20
+
+                if token in haystack:
+                    score += 5
+
+            if score > 0:
+                scored.append(
+                    (
+                        score,
+                        result,
+                    )
+                )
+
+        scored.sort(
+            key=lambda item: item[0],
+            reverse=True,
         )
 
-        self.input_field.clear()
+        matches = [
+            result
+            for _, result in scored
+        ]
 
-        # Placeholder AI response
-        self.chat_area.append(
-            "<div style='margin: 4px 0 12px 0;'>"
-            "<p style='color: #0A84FF; font-weight: 600; margin: 0 0 4px 0; font-size: 13px;'>DesktopAI</p>"
-            "<p style='color: #A1A1A6; margin: 0; font-size: 13px;'>"
-            "AI chat is connected and ready. Full response streaming arrives in Phase 3."
-            "</p></div>"
+        self._show_results(
+            matches
         )
+
+        self.status.setText(
+            f"{len(matches)} matching file(s)."
+        )
+
+    def _show_results(
+        self,
+        results: list,
+    ):
+
+        self.table.setRowCount(
+            len(results)
+        )
+
+        for row, result in enumerate(
+            results
+        ):
+
+            info = result.file_info
+
+            self.table.setItem(
+                row,
+                0,
+                QTableWidgetItem(
+                    info.filename
+                ),
+            )
+
+            self.table.setItem(
+                row,
+                1,
+                QTableWidgetItem(
+                    result.category
+                ),
+            )
+
+            self.table.setItem(
+                row,
+                2,
+                QTableWidgetItem(
+                    f"{int(result.confidence * 100)}%"
+                ),
+            )
+
+            self.table.setItem(
+                row,
+                3,
+                QTableWidgetItem(
+                    str(info.path)
+                ),
+            )
+
+    def _open_file(
+        self,
+        row: int,
+        _column: int,
+    ):
+
+        if row < 0:
+            return
+
+        if row >= self.table.rowCount():
+            return
+
+        path_item = self.table.item(
+            row,
+            3,
+        )
+
+        if not path_item:
+            return
+
+        path = Path(
+            path_item.text()
+        )
+
+        if path.exists():
+            QDesktopServices.openUrl(
+                QUrl.fromLocalFile(
+                    str(path)
+                )
+            )

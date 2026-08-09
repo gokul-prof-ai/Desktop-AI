@@ -1,37 +1,30 @@
 """
 DesktopAI
-OCR Reader
+Optional OCR reader.
 
-Extracts text from image files (scanned documents, screenshots,
-photos of text) using Tesseract OCR, for content that has no
-selectable text layer.
+OCR dependencies are intentionally imported lazily.
+
+Reason:
+A missing OCR package must never prevent unrelated modules
+or tests from being imported.
 """
+
+from __future__ import annotations
 
 from pathlib import Path
 
-import pytesseract
-from PIL import Image, UnidentifiedImageError
-
 from core.logger import get_logger
+
 
 logger = get_logger("documents")
 
 
 def read_image_text(path: Path) -> str | None:
     """
-    Extract text from an image using OCR.
+    Extract text from an image using Tesseract.
 
-    Args:
-        path (Path):
-            The image file to read (e.g. .png, .jpg).
-
-    Returns:
-        str | None:
-            The extracted text, or None if the file could not be
-            read (missing, corrupted, not a valid image), or if
-            the Tesseract OCR engine itself is not installed on
-            this machine. A None result is expected behavior for
-            a bad file, not a crash.
+    OCR is optional. If pytesseract or the Tesseract executable
+    is unavailable, None is returned instead of crashing the app.
     """
 
     if not path.exists():
@@ -39,22 +32,74 @@ def read_image_text(path: Path) -> str | None:
         return None
 
     try:
+        from PIL import Image, UnidentifiedImageError
+    except ModuleNotFoundError:
+        logger.warning(
+            "Pillow is not installed. OCR skipped."
+        )
+        return None
+
+    try:
+        import pytesseract
+    except ModuleNotFoundError:
+        logger.warning(
+            "pytesseract is not installed. OCR skipped."
+        )
+        return None
+
+    try:
         image = Image.open(path)
-    except UnidentifiedImageError as error:
-        logger.warning("Could not open image %s: %s", path, error)
+    except UnidentifiedImageError as exc:
+        logger.warning(
+            "Invalid image %s: %s",
+            path,
+            exc,
+        )
+        return None
+    except OSError as exc:
+        logger.warning(
+            "Could not open image %s: %s",
+            path,
+            exc,
+        )
         return None
 
     try:
         text = pytesseract.image_to_string(image)
-    except (pytesseract.TesseractNotFoundError, pytesseract.TesseractError) as error:
-        # This means Tesseract OCR is not installed or encountered a runtime binary error.
+
+    except pytesseract.TesseractNotFoundError as exc:
         logger.warning(
-            "Tesseract OCR engine error or not installed on PATH (%s). OCR skipped.", error
+            "Tesseract executable not found. "
+            "Install Tesseract OCR to enable image OCR: %s",
+            exc,
         )
         return None
+
+    except pytesseract.TesseractError as exc:
+        logger.warning(
+            "Tesseract OCR failed for %s: %s",
+            path,
+            exc,
+        )
+        return None
+
+    except Exception as exc:
+        logger.exception(
+            "Unexpected OCR error for %s: %s",
+            path,
+            exc,
+        )
+        return None
+
     finally:
         image.close()
 
-    logger.info("OCR extracted %d character(s) from %s", len(text), path)
+    cleaned = text.strip()
 
-    return text
+    logger.info(
+        "OCR extracted %d character(s) from %s",
+        len(cleaned),
+        path,
+    )
+
+    return cleaned or None
