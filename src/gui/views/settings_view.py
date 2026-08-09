@@ -1,350 +1,166 @@
 """
-DesktopAI v2.0
-AI Chat workspace.
+DesktopAI v2.0 — Settings View
+File: src/gui/views/settings_view.py
 """
-
 from __future__ import annotations
-
-from PySide6.QtCore import QThread, Signal, Qt
 from PySide6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QLabel,
-    QTextBrowser,
-    QLineEdit,
-    QPushButton,
+    QWidget, QVBoxLayout, QLabel, QFrame,
+    QCheckBox, QComboBox, QPushButton, QHBoxLayout,
 )
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QFont
+
+from core.logger import get_logger
+
+logger = get_logger(__name__)
 
 
-class ChatWorker(QThread):
-
-    completed = Signal(str)
-    failed = Signal(str)
-
-    def __init__(
-        self,
-        prompt: str,
-        context: str,
-        parent=None,
-    ):
-        super().__init__(parent)
-
-        self.prompt = prompt
-        self.context = context
-
-    def run(self):
-
-        try:
-
-            from infrastructure.ai.gateway import (
-                AIGateway,
-                GenerateRequest,
-            )
-
-            system_prompt = """
-You are DesktopAI, a local-first desktop file assistant.
-
-You help users:
-- understand their files
-- explain organization results
-- find files
-- recommend organization strategies
-- answer questions about the current scanned folder
-
-Never claim that a file operation happened unless the application
-actually executed it.
-
-Be concise, practical and accurate.
-"""
-
-            full_prompt = (
-                f"{system_prompt}\n\n"
-                f"Current application context:\n"
-                f"{self.context}\n\n"
-                f"User request:\n"
-                f"{self.prompt}"
-            )
-
-            response = AIGateway.generate(
-                GenerateRequest(
-                    prompt=full_prompt,
-                    model_hint="default",
-                    temperature=0.2,
-                    max_tokens=1000,
-                )
-            )
-
-            self.completed.emit(
-                response.text.strip()
-            )
-
-        except Exception as exc:
-
-            self.failed.emit(
-                str(exc)
-            )
-
-
-class ChatView(QWidget):
+class SettingsView(QWidget):
+    """Settings / configuration screen (App Shell UI style)."""
 
     def __init__(self):
         super().__init__()
-
-        self.scan_context = (
-            "No folder has been scanned yet."
-        )
-
-        self.worker = None
+        self.setStyleSheet("background-color: transparent;")
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(40, 40, 40, 40)
+        layout.setSpacing(24)
 
-        layout.setContentsMargins(
-            0,
-            0,
-            0,
-            0,
-        )
+        # ── Header ───────────────────────────────────────────────
+        title = QLabel("Settings")
+        title.setFont(QFont("Segoe UI", 28, QFont.Weight.Bold))
+        title.setStyleSheet("color: #FFFFFF;")
+        layout.addWidget(title)
 
-        layout.setSpacing(12)
+        subtitle = QLabel("Configure DesktopAI to your preferences")
+        subtitle.setStyleSheet("color: #A1A1AA; font-size: 14px;")
+        layout.addWidget(subtitle)
+        layout.addSpacing(20)
 
-        self.chat = QTextBrowser()
+        # ── AI Configuration ──────────────────────────────────────
+        ai_group = self._create_section("AI Configuration")
+        ai_layout = ai_group.layout()
 
-        self.chat.setOpenExternalLinks(
-            True
-        )
+        model_layout = QHBoxLayout()
+        model_label = QLabel("AI Model:")
+        model_label.setStyleSheet("color: #A1A1AA;")
+        model_layout.addWidget(model_label)
 
-        self._append_message(
-            "DesktopAI",
-            (
-                "I am ready. Ask me about your scanned files, "
-                "organization plan, categories or folder structure."
-            ),
-        )
+        self.model_combo = QComboBox()
+        self.model_combo.addItems(["llama3.2", "llama3.2:1b", "mistral", "codellama"])
+        self.model_combo.setStyleSheet(self._combo_style())
+        model_layout.addWidget(self.model_combo)
+        model_layout.addStretch()
+        ai_layout.addLayout(model_layout)
 
-        layout.addWidget(
-            self.chat,
-            1,
-        )
+        layout.addWidget(ai_group)
 
-        composer = QHBoxLayout()
+        # ── Scanner ───────────────────────────────────────────────
+        scanner_group = self._create_section("Scanner")
+        scanner_layout = scanner_group.layout()
 
-        self.input = QLineEdit()
+        self.skip_hidden_check = QCheckBox("Skip hidden files and folders")
+        self.skip_hidden_check.setChecked(True)
+        self.skip_hidden_check.setStyleSheet("color: #E4E4E7; spacing: 8px;")
+        scanner_layout.addWidget(self.skip_hidden_check)
 
-        self.input.setPlaceholderText(
-            "Ask DesktopAI..."
-        )
+        self.skip_system_check = QCheckBox("Skip system files")
+        self.skip_system_check.setChecked(True)
+        self.skip_system_check.setStyleSheet("color: #E4E4E7; spacing: 8px;")
+        scanner_layout.addWidget(self.skip_system_check)
 
-        self.input.returnPressed.connect(
-            self._send
-        )
+        layout.addWidget(scanner_group)
 
-        self.send_button = QPushButton(
-            "Send"
-        )
+        # ── Appearance ────────────────────────────────────────────
+        appearance_group = self._create_section("Appearance")
+        appearance_layout = appearance_group.layout()
 
-        self.send_button.setObjectName(
-            "PrimaryButton"
-        )
+        theme_layout = QHBoxLayout()
+        theme_label = QLabel("Theme:")
+        theme_label.setStyleSheet("color: #A1A1AA;")
+        theme_layout.addWidget(theme_label)
 
-        self.send_button.clicked.connect(
-            self._send
-        )
+        self.theme_combo = QComboBox()
+        self.theme_combo.addItems(["Dark", "Light", "System"])
+        self.theme_combo.setCurrentText("Dark")
+        self.theme_combo.setStyleSheet(self._combo_style())
+        theme_layout.addWidget(self.theme_combo)
+        theme_layout.addStretch()
+        appearance_layout.addLayout(theme_layout)
 
-        composer.addWidget(
-            self.input,
-            1,
-        )
+        layout.addWidget(appearance_group)
 
-        composer.addWidget(
-            self.send_button
-        )
+        # ── Actions ──────────────────────────────────────────────
+        layout.addStretch()
+        actions_layout = QHBoxLayout()
+        actions_layout.addStretch()
 
-        layout.addLayout(
-            composer
-        )
-
-    # ==================================================================
-    # CONTEXT
-    # ==================================================================
-
-    def set_scan_context(
-        self,
-        scan_path: str,
-        results: list,
-    ):
-
-        categories = sorted(
-            {
-                result.category
-                for result in results
-                if result.category
+        reset_btn = QPushButton("Reset to Defaults")
+        reset_btn.setFixedSize(160, 44)
+        reset_btn.setStyleSheet("""
+            QPushButton {
+                background-color: transparent; color: #F87171;
+                border: 1px solid #F87171; border-radius: 8px; font-weight: 600;
             }
-        )
+            QPushButton:hover { background-color: rgba(248, 113, 113, 0.1); }
+        """)
+        actions_layout.addWidget(reset_btn)
 
-        filenames = [
-            result.file_info.filename
-            for result in results[:50]
-        ]
+        save_btn = QPushButton("Save Settings")
+        save_btn.setFixedSize(160, 44)
+        save_btn.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #8B5CF6, stop:1 #3B82F6);
+                color: white; border: none; border-radius: 8px; font-weight: 600;
+            }
+            QPushButton:hover { opacity: 0.9; }
+        """)
+        save_btn.clicked.connect(self._on_save_clicked)
+        actions_layout.addWidget(save_btn)
 
-        self.scan_context = (
-            f"Scanned folder: {scan_path}\n"
-            f"Files analyzed: {len(results)}\n"
-            f"Categories: {', '.join(categories)}\n"
-            f"Sample files: {', '.join(filenames)}"
-        )
+        layout.addLayout(actions_layout)
 
-    # ==================================================================
-    # SEND
-    # ==================================================================
+    # ── Helpers ───────────────────────────────────────────────────
+    def _combo_style(self) -> str:
+        return """
+            QComboBox {
+                background-color: #0A0A0F; border: 1px solid #2A2A35;
+                border-radius: 8px; color: #FFFFFF; padding: 8px 12px;
+                min-width: 150px;
+            }
+            QComboBox:hover { border: 1px solid #3F3F46; }
+        """
 
-    def _send(self):
+    def _create_section(self, title: str) -> QFrame:
+        """Create a settings card with a single layout (no double-layout bug)."""
+        group = QFrame()
+        group.setStyleSheet("""
+            QFrame {
+                background-color: #0A0A0F;
+                border: 1px solid #1A1A24;
+                border-radius: 12px;
+            }
+        """)
+        layout = QVBoxLayout(group)
+        layout.setContentsMargins(24, 24, 24, 24)
+        layout.setSpacing(16)
 
-        prompt = (
-            self.input.text()
-            .strip()
-        )
+        title_label = QLabel(title)
+        title_label.setFont(QFont("Segoe UI", 16, QFont.Weight.DemiBold))
+        title_label.setStyleSheet("color: #FFFFFF;")
+        layout.addWidget(title_label)
+        return group
 
-        if not prompt:
-            return
-
-        self.input.clear()
-
-        self._append_message(
-            "You",
-            prompt,
-        )
-
-        self._append_message(
-            "DesktopAI",
-            "Thinking...",
-        )
-
-        self.input.setEnabled(
-            False
-        )
-
-        self.send_button.setEnabled(
-            False
-        )
-
-        self.worker = ChatWorker(
-            prompt,
-            self.scan_context,
-        )
-
-        self.worker.completed.connect(
-            self._on_completed
-        )
-
-        self.worker.failed.connect(
-            self._on_failed
-        )
-
-        self.worker.finished.connect(
-            self._worker_finished
-        )
-
-        self.worker.start()
-
-    def _on_completed(
-        self,
-        response: str,
-    ):
-
-        self._remove_last_thinking_message()
-
-        self._append_message(
-            "DesktopAI",
-            response,
-        )
-
-    def _on_failed(
-        self,
-        error: str,
-    ):
-
-        self._remove_last_thinking_message()
-
-        self._append_message(
-            "DesktopAI",
-            f"AI request failed: {error}",
-        )
-
-    def _worker_finished(self):
-
-        self.input.setEnabled(
-            True
-        )
-
-        self.send_button.setEnabled(
-            True
-        )
-
-        self.input.setFocus()
-
-        self.worker = None
-
-    # ==================================================================
-    # MESSAGE UI
-    # ==================================================================
-
-    def _append_message(
-        self,
-        sender: str,
-        text: str,
-    ):
-
-        safe_text = (
-            text
-            .replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace("\n", "<br>")
-        )
-
-        color = (
-            "var(--primary)"
-        )
-
-        self.chat.append(
-            f"""
-            <p>
-                <b>{sender}</b>
-            </p>
-            <p>{safe_text}</p>
-            """
-        )
-
-    def _remove_last_thinking_message(self):
-
-        cursor = self.chat.textCursor()
-
-        cursor.movePosition(
-            cursor.MoveOperation.End
-        )
-
-        document = self.chat.document()
-
-        text = document.toPlainText()
-
-        if "Thinking..." not in text:
-            return
-
-        # Rebuild is safer than manipulating arbitrary QTextBlocks.
-        lines = text.splitlines()
-
-        while lines and (
-            lines[-1].strip() == ""
-            or lines[-1].strip() == "Thinking..."
-        ):
-            lines.pop()
-
-        self.chat.clear()
-
-        if not lines:
-            return
-
-        self.chat.setPlainText(
-            "\n".join(lines)
-        )
+    def _on_save_clicked(self):
+        """Persist settings via the Settings service (safe, non-fatal)."""
+        try:
+            from infrastructure.config.settings import Settings
+            Settings.ai.model = self.model_combo.currentText()
+            Settings.scanner.skip_hidden = self.skip_hidden_check.isChecked()
+            Settings.scanner.skip_system = self.skip_system_check.isChecked()
+            Settings.app.theme = self.theme_combo.currentText().lower()
+            Settings.save()
+            logger.info("Settings saved from SettingsView")
+        except Exception as exc:
+            logger.warning("Could not save settings: %s", exc)

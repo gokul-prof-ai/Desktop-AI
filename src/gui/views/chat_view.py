@@ -1,37 +1,101 @@
 """
 DesktopAI v2.0
-Search workspace.
-
-Uses fast local matching against the current scan first.
-Semantic search can be added without breaking this fallback.
+AI Chat workspace.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
-
-from PySide6.QtCore import Qt, QUrl
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtCore import QThread, Signal, Qt
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
     QLabel,
+    QTextBrowser,
     QLineEdit,
     QPushButton,
-    QTableWidget,
-    QTableWidgetItem,
-    QHeaderView,
-    QFrame,
 )
 
 
-class SearchView(QWidget):
+class ChatWorker(QThread):
+
+    completed = Signal(str)
+    failed = Signal(str)
+
+    def __init__(
+        self,
+        prompt: str,
+        context: str,
+        parent=None,
+    ):
+        super().__init__(parent)
+
+        self.prompt = prompt
+        self.context = context
+
+    def run(self):
+
+        try:
+
+            from infrastructure.ai.gateway import (
+                AIGateway,
+                GenerateRequest,
+            )
+
+            system_prompt = """
+You are DesktopAI, a local-first desktop file assistant.
+
+You help users:
+- understand their files
+- explain organization results
+- find files
+- recommend organization strategies
+- answer questions about the current scanned folder
+
+Never claim that a file operation happened unless the application
+actually executed it.
+
+Be concise, practical and accurate.
+"""
+
+            full_prompt = (
+                f"{system_prompt}\n\n"
+                f"Current application context:\n"
+                f"{self.context}\n\n"
+                f"User request:\n"
+                f"{self.prompt}"
+            )
+
+            response = AIGateway.generate(
+                GenerateRequest(
+                    prompt=full_prompt,
+                    model_hint="default",
+                    temperature=0.2,
+                    max_tokens=1000,
+                )
+            )
+
+            self.completed.emit(
+                response.text.strip()
+            )
+
+        except Exception as exc:
+
+            self.failed.emit(
+                str(exc)
+            )
+
+
+class ChatView(QWidget):
 
     def __init__(self):
         super().__init__()
 
-        self.results = []
+        self.scan_context = (
+            "No folder has been scanned yet."
+        )
+
+        self.worker = None
 
         layout = QVBoxLayout(self)
 
@@ -42,316 +106,245 @@ class SearchView(QWidget):
             0,
         )
 
-        layout.setSpacing(14)
+        layout.setSpacing(12)
 
-        toolbar = QHBoxLayout()
+        self.chat = QTextBrowser()
 
-        self.search_input = QLineEdit()
-
-        self.search_input.setPlaceholderText(
-            "Search files by name, category, extension or path..."
+        self.chat.setOpenExternalLinks(
+            True
         )
 
-        self.search_input.returnPressed.connect(
-            self._search
+        self._append_message(
+            "DesktopAI",
+            (
+                "I am ready. Ask me about your scanned files, "
+                "organization plan, categories or folder structure."
+            ),
         )
 
-        self.search_button = QPushButton(
-            "Search"
+        layout.addWidget(
+            self.chat,
+            1,
         )
 
-        self.search_button.setObjectName(
+        composer = QHBoxLayout()
+
+        self.input = QLineEdit()
+
+        self.input.setPlaceholderText(
+            "Ask DesktopAI..."
+        )
+
+        self.input.returnPressed.connect(
+            self._send
+        )
+
+        self.send_button = QPushButton(
+            "Send"
+        )
+
+        self.send_button.setObjectName(
             "PrimaryButton"
         )
 
-        self.search_button.clicked.connect(
-            self._search
+        self.send_button.clicked.connect(
+            self._send
         )
 
-        toolbar.addWidget(
-            self.search_input,
+        composer.addWidget(
+            self.input,
             1,
         )
 
-        toolbar.addWidget(
-            self.search_button
+        composer.addWidget(
+            self.send_button
         )
 
         layout.addLayout(
-            toolbar
-        )
-
-        self.status = QLabel(
-            "Scan a folder from Home to build the local search context."
-        )
-
-        self.status.setObjectName(
-            "PageSubtitle"
-        )
-
-        layout.addWidget(
-            self.status
-        )
-
-        card = QFrame()
-        card.setObjectName(
-            "Card"
-        )
-
-        card_layout = QVBoxLayout(
-            card
-        )
-
-        self.table = QTableWidget()
-
-        self.table.setColumnCount(4)
-
-        self.table.setHorizontalHeaderLabels(
-            [
-                "File",
-                "Category",
-                "Confidence",
-                "Path",
-            ]
-        )
-
-        self.table.horizontalHeader().setSectionResizeMode(
-            0,
-            QHeaderView.ResizeToContents,
-        )
-
-        self.table.horizontalHeader().setSectionResizeMode(
-            1,
-            QHeaderView.ResizeToContents,
-        )
-
-        self.table.horizontalHeader().setSectionResizeMode(
-            2,
-            QHeaderView.ResizeToContents,
-        )
-
-        self.table.horizontalHeader().setSectionResizeMode(
-            3,
-            QHeaderView.Stretch,
-        )
-
-        self.table.setEditTriggers(
-            QTableWidget.NoEditTriggers
-        )
-
-        self.table.setSelectionBehavior(
-            QTableWidget.SelectRows
-        )
-
-        self.table.cellDoubleClicked.connect(
-            self._open_file
-        )
-
-        card_layout.addWidget(
-            self.table
-        )
-
-        layout.addWidget(
-            card,
-            1,
+            composer
         )
 
     # ==================================================================
-    # STATE
+    # CONTEXT
     # ==================================================================
 
     def set_scan_context(
         self,
-        _scan_path: str,
+        scan_path: str,
         results: list,
     ):
 
-        self.results = results
-
-        self.status.setText(
-            f"{len(results)} scanned file(s) available for search."
+        categories = sorted(
+            {
+                result.category
+                for result in results
+                if result.category
+            }
         )
 
-        self._search()
+        filenames = [
+            result.file_info.filename
+            for result in results[:50]
+        ]
+
+        self.scan_context = (
+            f"Scanned folder: {scan_path}\n"
+            f"Files analyzed: {len(results)}\n"
+            f"Categories: {', '.join(categories)}\n"
+            f"Sample files: {', '.join(filenames)}"
+        )
 
     # ==================================================================
-    # SEARCH
+    # SEND
     # ==================================================================
 
-    def _search(self):
+    def _send(self):
 
-        query = (
-            self.search_input.text()
+        prompt = (
+            self.input.text()
             .strip()
-            .lower()
         )
 
-        if not query:
-            self._show_results(
-                self.results
-            )
-
+        if not prompt:
             return
 
-        tokens = [
-            token
-            for token in query.split()
-            if token
-        ]
+        self.input.clear()
 
-        scored = []
-
-        for result in self.results:
-
-            file_info = result.file_info
-
-            filename = (
-                file_info.filename.lower()
-            )
-
-            category = (
-                result.category.lower()
-            )
-
-            extension = (
-                file_info.extension.lower()
-            )
-
-            path = (
-                str(file_info.path).lower()
-            )
-
-            haystack = (
-                f"{filename} "
-                f"{category} "
-                f"{extension} "
-                f"{path}"
-            )
-
-            score = 0
-
-            if query in filename:
-                score += 100
-
-            if query in category:
-                score += 80
-
-            if query in extension:
-                score += 60
-
-            if query in path:
-                score += 40
-
-            for token in tokens:
-                if token in filename:
-                    score += 25
-
-                if token in category:
-                    score += 20
-
-                if token in haystack:
-                    score += 5
-
-            if score > 0:
-                scored.append(
-                    (
-                        score,
-                        result,
-                    )
-                )
-
-        scored.sort(
-            key=lambda item: item[0],
-            reverse=True,
+        self._append_message(
+            "You",
+            prompt,
         )
 
-        matches = [
-            result
-            for _, result in scored
-        ]
-
-        self._show_results(
-            matches
+        self._append_message(
+            "DesktopAI",
+            "Thinking...",
         )
 
-        self.status.setText(
-            f"{len(matches)} matching file(s)."
+        self.input.setEnabled(
+            False
         )
 
-    def _show_results(
+        self.send_button.setEnabled(
+            False
+        )
+
+        self.worker = ChatWorker(
+            prompt,
+            self.scan_context,
+        )
+
+        self.worker.completed.connect(
+            self._on_completed
+        )
+
+        self.worker.failed.connect(
+            self._on_failed
+        )
+
+        self.worker.finished.connect(
+            self._worker_finished
+        )
+
+        self.worker.start()
+
+    def _on_completed(
         self,
-        results: list,
+        response: str,
     ):
 
-        self.table.setRowCount(
-            len(results)
+        self._remove_last_thinking_message()
+
+        self._append_message(
+            "DesktopAI",
+            response,
         )
 
-        for row, result in enumerate(
-            results
+    def _on_failed(
+        self,
+        error: str,
+    ):
+
+        self._remove_last_thinking_message()
+
+        self._append_message(
+            "DesktopAI",
+            f"AI request failed: {error}",
+        )
+
+    def _worker_finished(self):
+
+        self.input.setEnabled(
+            True
+        )
+
+        self.send_button.setEnabled(
+            True
+        )
+
+        self.input.setFocus()
+
+        self.worker = None
+
+    # ==================================================================
+    # MESSAGE UI
+    # ==================================================================
+
+    def _append_message(
+        self,
+        sender: str,
+        text: str,
+    ):
+
+        safe_text = (
+            text
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\n", "<br>")
+        )
+
+        color = (
+            "var(--primary)"
+        )
+
+        self.chat.append(
+            f"""
+            <p>
+                <b>{sender}</b>
+            </p>
+            <p>{safe_text}</p>
+            """
+        )
+
+    def _remove_last_thinking_message(self):
+
+        cursor = self.chat.textCursor()
+
+        cursor.movePosition(
+            cursor.MoveOperation.End
+        )
+
+        document = self.chat.document()
+
+        text = document.toPlainText()
+
+        if "Thinking..." not in text:
+            return
+
+        # Rebuild is safer than manipulating arbitrary QTextBlocks.
+        lines = text.splitlines()
+
+        while lines and (
+            lines[-1].strip() == ""
+            or lines[-1].strip() == "Thinking..."
         ):
+            lines.pop()
 
-            info = result.file_info
+        self.chat.clear()
 
-            self.table.setItem(
-                row,
-                0,
-                QTableWidgetItem(
-                    info.filename
-                ),
-            )
-
-            self.table.setItem(
-                row,
-                1,
-                QTableWidgetItem(
-                    result.category
-                ),
-            )
-
-            self.table.setItem(
-                row,
-                2,
-                QTableWidgetItem(
-                    f"{int(result.confidence * 100)}%"
-                ),
-            )
-
-            self.table.setItem(
-                row,
-                3,
-                QTableWidgetItem(
-                    str(info.path)
-                ),
-            )
-
-    def _open_file(
-        self,
-        row: int,
-        _column: int,
-    ):
-
-        if row < 0:
+        if not lines:
             return
 
-        if row >= self.table.rowCount():
-            return
-
-        path_item = self.table.item(
-            row,
-            3,
+        self.chat.setPlainText(
+            "\n".join(lines)
         )
-
-        if not path_item:
-            return
-
-        path = Path(
-            path_item.text()
-        )
-
-        if path.exists():
-            QDesktopServices.openUrl(
-                QUrl.fromLocalFile(
-                    str(path)
-                )
-            )
