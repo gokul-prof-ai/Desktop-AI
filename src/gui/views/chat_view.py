@@ -3,10 +3,14 @@ DesktopAI v2.0 — Chat View (theme-aware, Ollama-backed)
 File: src/gui/views/chat_view.py
 """
 from __future__ import annotations
+
+from pathlib import Path
+
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QLineEdit, QHBoxLayout, QScrollArea,
 )
+
 from gui.components.sound_button import SoundButton
 from core.logger import get_logger
 
@@ -16,13 +20,42 @@ logger = get_logger(__name__)
 class _ChatWorker(QThread):
     finished_reply = Signal(str)
 
-    def __init__(self, message: str, parent=None):
+    def __init__(
+        self,
+        message: str,
+        scan_context: tuple | None = None,
+        parent=None,
+    ):
         super().__init__(parent)
         self._message = message
+        # (scan_path: Path | None, results: list) — forwarded to ChatWorkflow.
+        self._scan_context = scan_context
 
     def run(self):
         from app.workflows.chat_workflow import ChatWorkflow
-        self.finished_reply.emit(ChatWorkflow().ask(self._message))
+
+        workflow = ChatWorkflow()
+
+        # Forward scan context if the workflow supports it (duck-typed,
+        # so this never breaks if ChatWorkflow has no such method).
+        if self._scan_context is not None:
+            scan_path, scan_results = self._scan_context
+            for fn_name in ("set_scan_context", "set_context"):
+                fn = getattr(workflow, fn_name, None)
+                if callable(fn):
+                    try:
+                        fn(scan_path, scan_results)
+                    except Exception as exc:
+                        logger.warning("ChatWorkflow rejected scan context: %s", exc)
+                    break
+
+        try:
+            reply = workflow.ask(self._message)
+        except Exception as exc:
+            logger.error("ChatWorkflow.ask failed: %s", exc)
+            reply = "Sorry — something went wrong while processing that request."
+
+        self.finished_reply.emit(reply)
 
 
 class ChatView(QWidget):
@@ -30,6 +63,10 @@ class ChatView(QWidget):
         super().__init__()
         self.setStyleSheet("background: transparent;")
         self._worker = None
+
+        # Latest scan context (set by MainWindow after every scan).
+        self._scan_path: Path | None = None
+        self._scan_results: list = []
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -72,6 +109,64 @@ class ChatView(QWidget):
         input_layout.addWidget(self.send_btn)
         layout.addLayout(input_layout)
 
+    # ── Scan context (called by MainWindow._on_scan_ready) ──────────────
+
+    def set_scan_context(self, scan_path, results) -> None:
+        """
+        Store the latest scan results so the chat agent can answer
+        questions about them ("how many finance files did I scan?").
+
+        Called by MainWindow after every completed scan.
+
+        Args:
+            scan_path: The folder that was scanned (str or Path).
+            results:   Scan results — list of dicts from
+                       FileService.scan_folder() or AnalysisResult objects.
+        """
+        self._scan_path = Path(scan_path) if scan_path else None
+        self._scan_results = list(results or [])
+
+        total = len(self._scan_results)
+        if total == 0:
+            logger.info("ChatView.set_scan_context: empty scan, nothing stored.")
+            return
+
+        def _field(item, key, default=None):
+            """Read a field from a dict or an object uniformly."""
+            if isinstance(item, dict):
+                return item.get(key, default)
+            return getattr(item, key, default)
+
+        categories: dict[str, int] = {}
+        for item in self._scan_results:
+            if _field(item, "skipped", False):
+                continue
+            cat = _field(item, "category", None) or "Miscellaneous"
+            categories[cat] = categories.get(cat, 0) + 1
+
+        folder_name = self._scan_path.name if self._scan_path else "folder"
+        top = sorted(categories.items(), key=lambda kv: kv[1], reverse=True)[:3]
+        top_str = ", ".join(f"{name} ({count})" for name, count in top)
+
+        self._add_message(
+            f"Scan of '{folder_name}' complete — {total} files analyzed. "
+            f"Top categories: {top_str}. Ask me anything about these files.",
+            False,
+        )
+        logger.info(
+            "ChatView.set_scan_context: stored %d results from %s",
+            total, self._scan_path,
+        )
+
+    def get_scan_context(self) -> tuple:
+        """
+        Return (scan_path, results) for the chat workflow.
+        Safe to call before any scan has happened.
+        """
+        return (self._scan_path, self._scan_results)
+
+    # ── Messaging ────────────────────────────────────────────────────────
+
     def _add_message(self, text: str, is_user: bool):
         bubble = QLabel(text)
         bubble.setWordWrap(True)
@@ -98,7 +193,12 @@ class ChatView(QWidget):
         self.chat_input.clear()
         self.send_btn.setEnabled(False)
         self._add_message("…", False)
-        self._worker = _ChatWorker(text)
+
+        # Attach scan context only when a scan has actually happened.
+        scan_path, scan_results = self.get_scan_context()
+        ctx = (scan_path, scan_results) if scan_results else None
+
+        self._worker = _ChatWorker(text, scan_context=ctx)
         self._worker.finished_reply.connect(self._on_reply)
         self._worker.start()
 
