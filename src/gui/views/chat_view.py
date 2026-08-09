@@ -1,350 +1,150 @@
 """
-DesktopAI v2.0
-AI Chat workspace.
+DesktopAI v2.0 — Chat View
+File: src/gui/views/chat_view.py
+
+Conversational UI wired to ChatWorkflow on a background thread.
 """
-
 from __future__ import annotations
-
-from PySide6.QtCore import QThread, Signal, Qt
+from PySide6.QtCore import Qt, QThread, Signal
+from PySide6.QtGui import QFont
 from PySide6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QHBoxLayout,
-    QLabel,
-    QTextBrowser,
-    QLineEdit,
-    QPushButton,
+    QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QVBoxLayout, QWidget,
 )
 
+from core.logger import get_logger
 
-class ChatWorker(QThread):
+logger = get_logger(__name__)
 
-    completed = Signal(str)
-    failed = Signal(str)
+try:
+    from gui.utils.sounds import SOUNDS
+except Exception:  # sounds module optional
+    class _NullSounds:
+        def play_click(self): pass
+        def play_success(self): pass
+    SOUNDS = _NullSounds()
 
-    def __init__(
-        self,
-        prompt: str,
-        context: str,
-        parent=None,
-    ):
+
+class _ChatWorker(QThread):
+    """Runs ChatWorkflow off the UI thread."""
+    finished_reply = Signal(str)
+
+    def __init__(self, message: str, parent=None):
         super().__init__(parent)
-
-        self.prompt = prompt
-        self.context = context
+        self._message = message
 
     def run(self):
-
-        try:
-
-            from infrastructure.ai.gateway import (
-                AIGateway,
-                GenerateRequest,
-            )
-
-            system_prompt = """
-You are DesktopAI, a local-first desktop file assistant.
-
-You help users:
-- understand their files
-- explain organization results
-- find files
-- recommend organization strategies
-- answer questions about the current scanned folder
-
-Never claim that a file operation happened unless the application
-actually executed it.
-
-Be concise, practical and accurate.
-"""
-
-            full_prompt = (
-                f"{system_prompt}\n\n"
-                f"Current application context:\n"
-                f"{self.context}\n\n"
-                f"User request:\n"
-                f"{self.prompt}"
-            )
-
-            response = AIGateway.generate(
-                GenerateRequest(
-                    prompt=full_prompt,
-                    model_hint="default",
-                    temperature=0.2,
-                    max_tokens=1000,
-                )
-            )
-
-            self.completed.emit(
-                response.text.strip()
-            )
-
-        except Exception as exc:
-
-            self.failed.emit(
-                str(exc)
-            )
+        from app.workflows.chat_workflow import ChatWorkflow
+        self.finished_reply.emit(ChatWorkflow().ask(self._message))
 
 
 class ChatView(QWidget):
-
     def __init__(self):
         super().__init__()
-
-        self.scan_context = (
-            "No folder has been scanned yet."
-        )
-
-        self.worker = None
+        self.setStyleSheet("background-color: transparent;")
+        self._worker = None
 
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(16)
 
-        layout.setContentsMargins(
-            0,
-            0,
-            0,
-            0,
+        title = QLabel("AI Assistant")
+        title.setFont(QFont("Segoe UI", 28, QFont.Weight.Bold))
+        title.setStyleSheet("color: #FFFFFF;")
+        layout.addWidget(title)
+
+        subtitle = QLabel("Ask me about your files — I'm wired into your scanner, organizer, and history.")
+        subtitle.setStyleSheet("color: #A1A1AA; font-size: 14px;")
+        layout.addWidget(subtitle)
+        layout.addSpacing(12)
+
+        self.chat_scroll = QScrollArea()
+        self.chat_scroll.setWidgetResizable(True)
+        self.chat_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.chat_scroll.setStyleSheet("""
+            QScrollArea { background-color: #0A0A0F; border: 1px solid #1A1A24; border-radius: 12px; }
+        """)
+        self.chat_content = QWidget()
+        self.chat_layout = QVBoxLayout(self.chat_content)
+        self.chat_layout.setContentsMargins(20, 20, 20, 20)
+        self.chat_layout.setSpacing(12)
+        self.chat_layout.setAlignment(Qt.AlignTop)
+        self.chat_scroll.setWidget(self.chat_content)
+        layout.addWidget(self.chat_scroll, 1)
+
+        self._add_message(
+            "Hello! I'm your DesktopAI agent. Try 'hi', 'what are these files?', "
+            "or ask anything about organizing your documents.",
+            is_user=False,
         )
 
-        layout.setSpacing(12)
+        input_layout = QHBoxLayout()
+        input_layout.setSpacing(12)
+        self.chat_input = QLineEdit()
+        self.chat_input.setPlaceholderText("Message DesktopAI...")
+        self.chat_input.setFixedHeight(48)
+        self.chat_input.setStyleSheet("""
+            QLineEdit { background-color: #0A0A0F; border: 1px solid #2A2A35; border-radius: 8px;
+                        color: #FFFFFF; padding: 0 16px; font-size: 14px; }
+            QLineEdit:focus { border: 1px solid #8B5CF6; }
+        """)
+        self.chat_input.returnPressed.connect(self._send_message)
+        input_layout.addWidget(self.chat_input, 1)
 
-        self.chat = QTextBrowser()
+        self.send_btn = QPushButton("Send")
+        self.send_btn.setFixedSize(80, 48)
+        self.send_btn.setStyleSheet("""
+            QPushButton { background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #8B5CF6, stop:1 #3B82F6);
+                          color: white; border: none; border-radius: 8px; font-weight: 600; }
+            QPushButton:hover { opacity: 0.9; }
+            QPushButton:disabled { background: #2A2A35; color: #71717A; }
+        """)
+        self.send_btn.clicked.connect(self._send_message)
+        input_layout.addWidget(self.send_btn)
+        layout.addLayout(input_layout)
 
-        self.chat.setOpenExternalLinks(
-            True
-        )
+    # ── Messages ──────────────────────────────────────────────────
+    def _add_message(self, text: str, is_user: bool):
+        bubble = QLabel(text)
+        bubble.setWordWrap(True)
+        bubble.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        if is_user:
+            bubble.setStyleSheet("""
+                QLabel { background: qlineargradient(x1:0,y1:0,x2:1,y2:0, stop:0 #8B5CF6, stop:1 #3B82F6);
+                         color: white; padding: 12px 16px; border-radius: 12px; }
+            """)
+            row.addStretch()
+            row.addWidget(bubble)
+        else:
+            bubble.setStyleSheet("""
+                QLabel { background-color: #1A1A24; color: #E4E4E7; padding: 12px 16px; border-radius: 12px; }
+            """)
+            row.addWidget(bubble)
+            row.addStretch()
+        wrap = QWidget()
+        wrap.setLayout(row)
+        self.chat_layout.addWidget(wrap)
+        self.chat_scroll.verticalScrollBar().setValue(self.chat_scroll.verticalScrollBar().maximum())
 
-        self._append_message(
-            "DesktopAI",
-            (
-                "I am ready. Ask me about your scanned files, "
-                "organization plan, categories or folder structure."
-            ),
-        )
-
-        layout.addWidget(
-            self.chat,
-            1,
-        )
-
-        composer = QHBoxLayout()
-
-        self.input = QLineEdit()
-
-        self.input.setPlaceholderText(
-            "Ask DesktopAI..."
-        )
-
-        self.input.returnPressed.connect(
-            self._send
-        )
-
-        self.send_button = QPushButton(
-            "Send"
-        )
-
-        self.send_button.setObjectName(
-            "PrimaryButton"
-        )
-
-        self.send_button.clicked.connect(
-            self._send
-        )
-
-        composer.addWidget(
-            self.input,
-            1,
-        )
-
-        composer.addWidget(
-            self.send_button
-        )
-
-        layout.addLayout(
-            composer
-        )
-
-    # ==================================================================
-    # CONTEXT
-    # ==================================================================
-
-    def set_scan_context(
-        self,
-        scan_path: str,
-        results: list,
-    ):
-
-        categories = sorted(
-            {
-                result.category
-                for result in results
-                if result.category
-            }
-        )
-
-        filenames = [
-            result.file_info.filename
-            for result in results[:50]
-        ]
-
-        self.scan_context = (
-            f"Scanned folder: {scan_path}\n"
-            f"Files analyzed: {len(results)}\n"
-            f"Categories: {', '.join(categories)}\n"
-            f"Sample files: {', '.join(filenames)}"
-        )
-
-    # ==================================================================
-    # SEND
-    # ==================================================================
-
-    def _send(self):
-
-        prompt = (
-            self.input.text()
-            .strip()
-        )
-
-        if not prompt:
+    def _send_message(self):
+        text = self.chat_input.text().strip()
+        if not text or (self._worker and self._worker.isRunning()):
             return
+        SOUNDS.play_click()
+        self._add_message(text, is_user=True)
+        self.chat_input.clear()
+        self.send_btn.setEnabled(False)
+        self._add_message("…", is_user=False)  # thinking placeholder
+        self._worker = _ChatWorker(text)
+        self._worker.finished_reply.connect(self._on_reply)
+        self._worker.start()
 
-        self.input.clear()
-
-        self._append_message(
-            "You",
-            prompt,
-        )
-
-        self._append_message(
-            "DesktopAI",
-            "Thinking...",
-        )
-
-        self.input.setEnabled(
-            False
-        )
-
-        self.send_button.setEnabled(
-            False
-        )
-
-        self.worker = ChatWorker(
-            prompt,
-            self.scan_context,
-        )
-
-        self.worker.completed.connect(
-            self._on_completed
-        )
-
-        self.worker.failed.connect(
-            self._on_failed
-        )
-
-        self.worker.finished.connect(
-            self._worker_finished
-        )
-
-        self.worker.start()
-
-    def _on_completed(
-        self,
-        response: str,
-    ):
-
-        self._remove_last_thinking_message()
-
-        self._append_message(
-            "DesktopAI",
-            response,
-        )
-
-    def _on_failed(
-        self,
-        error: str,
-    ):
-
-        self._remove_last_thinking_message()
-
-        self._append_message(
-            "DesktopAI",
-            f"AI request failed: {error}",
-        )
-
-    def _worker_finished(self):
-
-        self.input.setEnabled(
-            True
-        )
-
-        self.send_button.setEnabled(
-            True
-        )
-
-        self.input.setFocus()
-
-        self.worker = None
-
-    # ==================================================================
-    # MESSAGE UI
-    # ==================================================================
-
-    def _append_message(
-        self,
-        sender: str,
-        text: str,
-    ):
-
-        safe_text = (
-            text
-            .replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace("\n", "<br>")
-        )
-
-        color = (
-            "var(--primary)"
-        )
-
-        self.chat.append(
-            f"""
-            <p>
-                <b>{sender}</b>
-            </p>
-            <p>{safe_text}</p>
-            """
-        )
-
-    def _remove_last_thinking_message(self):
-
-        cursor = self.chat.textCursor()
-
-        cursor.movePosition(
-            cursor.MoveOperation.End
-        )
-
-        document = self.chat.document()
-
-        text = document.toPlainText()
-
-        if "Thinking..." not in text:
-            return
-
-        # Rebuild is safer than manipulating arbitrary QTextBlocks.
-        lines = text.splitlines()
-
-        while lines and (
-            lines[-1].strip() == ""
-            or lines[-1].strip() == "Thinking..."
-        ):
-            lines.pop()
-
-        self.chat.clear()
-
-        if not lines:
-            return
-
-        self.chat.setPlainText(
-            "\n".join(lines)
-        )
+    def _on_reply(self, reply: str):
+        # Remove the thinking placeholder (last widget)
+        item = self.chat_layout.takeAt(self.chat_layout.count() - 1)
+        if item and item.widget():
+            item.widget().deleteLater()
+        self._add_message(reply, is_user=False)
+        self.send_btn.setEnabled(True)
+        SOUNDS.play_success()
