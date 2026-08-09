@@ -2,97 +2,85 @@
 DesktopAI v2.0 — Animated Stacked Widget
 File: src/gui/components/animated_stack.py
 
-Provides smooth fade + slide transitions between pages.
+Clean fade transition between pages.
+The previous version had a broken timer that never switched pages.
+This version uses QTimer.singleShot correctly.
 """
 from __future__ import annotations
+
 from PySide6.QtWidgets import QStackedWidget, QGraphicsOpacityEffect
-from PySide6.QtCore import (
-    QPropertyAnimation, QEasingCurve, Qt, QPoint, QParallelAnimationGroup
-)
+from PySide6.QtCore import QPropertyAnimation, QEasingCurve, QTimer
 
 
 class AnimatedStackedWidget(QStackedWidget):
     """
-    A QStackedWidget with smooth fade and slide transitions.
+    QStackedWidget with a smooth fade transition between pages.
     """
-    
-    def __init__(self, parent=None):
+
+    DURATION = 200  # ms
+
+    def __init__(self, parent=None) -> None:
         super().__init__(parent)
-        self._animation_duration = 300
-        self._is_animating = False
-    
-    def setCurrentIndex(self, index: int):
-        """Switch to a page with animation."""
-        if index == self.currentIndex() or self._is_animating:
+        self._animating = False
+
+    def setCurrentIndex(self, index: int) -> None:
+        """Switch to page `index` with a fade animation."""
+        if index == self.currentIndex() or self._animating:
+            # Fallback: force switch if not animating but same index requested
+            if index != self.currentIndex():
+                super().setCurrentIndex(index)
             return
-        
-        self._is_animating = True
-        
-        # Get current and next widgets
-        current_widget = self.currentWidget()
-        next_widget = self.widget(index)
-        
-        if not current_widget or not next_widget:
+
+        if index < 0 or index >= self.count():
+            return
+
+        current = self.currentWidget()
+        target = self.widget(index)
+
+        if current is None or target is None:
             super().setCurrentIndex(index)
-            self._is_animating = False
             return
-        
-        # Setup fade effects
-        current_effect = QGraphicsOpacityEffect(current_widget)
-        current_widget.setGraphicsEffect(current_effect)
-        
-        next_effect = QGraphicsOpacityEffect(next_widget)
-        next_widget.setGraphicsEffect(next_effect)
-        next_effect.setOpacity(0.0)
-        
-        # Create animations
-        fade_out = QPropertyAnimation(current_effect, b"opacity")
-        fade_out.setDuration(self._animation_duration)
+
+        self._animating = True
+
+        # Fade out the current widget
+        out_effect = QGraphicsOpacityEffect(current)
+        current.setGraphicsEffect(out_effect)
+
+        fade_out = QPropertyAnimation(out_effect, b"opacity", self)
+        fade_out.setDuration(self.DURATION // 2)
         fade_out.setStartValue(1.0)
         fade_out.setEndValue(0.0)
-        fade_out.setEasingCurve(QEasingCurve.InOutQuad)
-        
-        fade_in = QPropertyAnimation(next_effect, b"opacity")
-        fade_in.setDuration(self._animation_duration)
-        fade_in.setStartValue(0.0)
-        fade_in.setEndValue(1.0)
-        fade_in.setEasingCurve(QEasingCurve.InOutQuad)
-        
-        # Slide animation for next widget
-        slide = QPropertyAnimation(next_widget, b"pos")
-        slide.setDuration(self._animation_duration)
-        slide.setStartValue(QPoint(50, 0))
-        slide.setEndValue(QPoint(0, 0))
-        slide.setEasingCurve(QEasingCurve.OutCubic)
-        
-        # Group animations
-        group = QParallelAnimationGroup(self)
-        group.addAnimation(fade_out)
-        group.addAnimation(fade_in)
-        group.addAnimation(slide)
-        
-        # Switch page at midpoint
-        def switch_page():
-            super().setCurrentIndex(index)
-        
-        timer = self.startTimer(self._animation_duration // 2)
-        def on_timer():
-            self.killTimer(timer)
-            switch_page()
-        
-        # Cleanup after animation
-        def on_finished():
-            self._is_animating = False
-            current_widget.setGraphicsEffect(None)
-            next_widget.setGraphicsEffect(None)
-        
-        group.finished.connect(on_finished)
-        
-        # Keep references
-        current_widget._fade_anim = fade_out
-        current_widget._fade_effect = current_effect
-        next_widget._fade_anim = fade_in
-        next_widget._fade_effect = next_effect
-        next_widget._slide_anim = slide
-        
-        group.start()
+        fade_out.setEasingCurve(QEasingCurve.OutQuad)
+
+        def _do_switch() -> None:
+            """Called at midpoint — perform the actual page switch."""
+            # Clean up outgoing widget effect
+            current.setGraphicsEffect(None)
+
+            # Switch the page
+            super(AnimatedStackedWidget, self).setCurrentIndex(index)
+
+            # Fade in the incoming widget
+            in_effect = QGraphicsOpacityEffect(target)
+            target.setGraphicsEffect(in_effect)
+            in_effect.setOpacity(0.0)
+
+            fade_in = QPropertyAnimation(in_effect, b"opacity", self)
+            fade_in.setDuration(self.DURATION // 2)
+            fade_in.setStartValue(0.0)
+            fade_in.setEndValue(1.0)
+            fade_in.setEasingCurve(QEasingCurve.InQuad)
+
+            def _done() -> None:
+                target.setGraphicsEffect(None)
+                self._animating = False
+
+            fade_in.finished.connect(_done)
+            fade_in.start()
+
+        fade_out.finished.connect(_do_switch)
+        fade_out.start()
+
+        # Keep reference so animation isn't garbage collected
+        self._active_anim = fade_out

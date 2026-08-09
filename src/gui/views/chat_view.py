@@ -1,105 +1,118 @@
 """
-DesktopAI v2.0 — Chat View
+DesktopAI v2.0 — Chat View (App Shell UI)
 File: src/gui/views/chat_view.py
+
+Workbench layout:
+  - Chat history card (grows)
+  - Composer bar pinned at bottom
 """
 from __future__ import annotations
+
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QLabel, QTextEdit, QLineEdit, QPushButton, QHBoxLayout, QScrollArea
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+    QTextEdit, QLineEdit, QPushButton, QFrame,
+    QSizePolicy,
 )
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QFont
+from PySide6.QtCore import Qt
+
+_PAD = 24
+
 
 class ChatView(QWidget):
-    def __init__(self):
+    """AI chat assistant screen."""
+
+    def __init__(self) -> None:
         super().__init__()
-        self.setStyleSheet("background-color: transparent;")
-        
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(40, 40, 40, 40)
-        layout.setSpacing(16)
-        
-        title = QLabel("AI Assistant")
-        title.setFont(QFont("Segoe UI", 28, QFont.Weight.Bold))
-        title.setStyleSheet("color: #FFFFFF;")
-        layout.addWidget(title)
-        
-        subtitle = QLabel("Ask me anything about your files")
-        subtitle.setStyleSheet("color: #A1A1AA; font-size: 14px;")
-        layout.addWidget(subtitle)
-        layout.addSpacing(20)
-        
-        self.chat_scroll = QScrollArea()
-        self.chat_scroll.setWidgetResizable(True)
-        self.chat_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.chat_scroll.setStyleSheet("QScrollArea { background-color: #0A0A0F; border: 1px solid #1A1A24; border-radius: 12px; }")
-        
-        self.chat_content = QWidget()
-        self.chat_layout = QVBoxLayout(self.chat_content)
-        self.chat_layout.setContentsMargins(20, 20, 20, 20)
-        self.chat_layout.setSpacing(16)
-        self.chat_layout.setAlignment(Qt.AlignTop)
-        
-        self._add_message("Hello! I'm your DesktopAI assistant. I can help you find files, organize your documents, or answer questions about your data. What would you like to do?", is_user=False)
-        
-        self.chat_scroll.setWidget(self.chat_content)
-        layout.addWidget(self.chat_scroll, 1)
-        
-        input_layout = QHBoxLayout()
-        input_layout.setSpacing(12)
-        
-        self.chat_input = QLineEdit()
-        self.chat_input.setPlaceholderText("Message DesktopAI...")
-        self.chat_input.setFixedHeight(48)
-        self.chat_input.setStyleSheet("""
-            QLineEdit {
-                background-color: #0A0A0F; border: 1px solid #2A2A35;
-                border-radius: 8px; color: #FFFFFF; padding: 0 16px; font-size: 14px;
-            }
-            QLineEdit:focus { border: 1px solid #8B5CF6; }
-        """)
-        self.chat_input.returnPressed.connect(self._send_message)
-        input_layout.addWidget(self.chat_input, 1)
-        
-        self.send_btn = QPushButton("Send")
-        self.send_btn.setFixedSize(80, 48)
-        self.send_btn.setStyleSheet("""
-            QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #8B5CF6, stop:1 #3B82F6);
-                color: white; border: none; border-radius: 8px; font-weight: 600;
-            }
-            QPushButton:hover { opacity: 0.9; }
-        """)
-        self.send_btn.clicked.connect(self._send_message)
-        input_layout.addWidget(self.send_btn)
-        layout.addLayout(input_layout)
-    
-    def _add_message(self, text: str, is_user: bool):
-        msg_widget = QWidget()
-        msg_layout = QHBoxLayout(msg_widget)
-        msg_layout.setContentsMargins(0, 0, 0, 0)
-        
-        msg_label = QLabel(text)
-        msg_label.setWordWrap(True)
-        msg_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        
-        if is_user:
-            msg_label.setStyleSheet("QLabel { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #8B5CF6, stop:1 #3B82F6); color: white; padding: 12px 16px; border-radius: 12px; }")
-            msg_layout.addStretch()
-            msg_layout.addWidget(msg_label)
-        else:
-            msg_label.setStyleSheet("QLabel { background-color: #1A1A24; color: #E4E4E7; padding: 12px 16px; border-radius: 12px; }")
-            msg_layout.addWidget(msg_label)
-            msg_layout.addStretch()
-        
-        self.chat_layout.addWidget(msg_widget)
-        self.chat_scroll.verticalScrollBar().setValue(self.chat_scroll.verticalScrollBar().maximum())
-    
-    def _send_message(self):
-        text = self.chat_input.text().strip()
-        if not text: return
-        
-        self._add_message(text, is_user=True)
-        self.chat_input.clear()
-        
-        response = "I can help you with:\n• Finding files by content or name\n• Organizing files into folders\n• Summarizing documents\n\nWhat would you like to do?"
-        QTimer.singleShot(500, lambda: self._add_message(response, is_user=False))
+        self._setup_ui()
+
+    def _setup_ui(self) -> None:
+        root = QVBoxLayout(self)
+        root.setContentsMargins(_PAD, _PAD, _PAD, _PAD)
+        root.setSpacing(12)
+
+        # Sub-header
+        sub = QLabel("Ask DesktopAI anything about your files or organization.")
+        sub.setStyleSheet("color: #A1A1A6; font-size: 13px;")
+        root.addWidget(sub)
+
+        # ── Chat history card ──────────────────────────────────────
+        history_card = QFrame()
+        history_card.setObjectName("Card")
+        history_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+        card_layout = QVBoxLayout(history_card)
+        card_layout.setContentsMargins(16, 16, 16, 16)
+        card_layout.setSpacing(0)
+
+        self.chat_area = QTextEdit()
+        self.chat_area.setReadOnly(True)
+        self.chat_area.setFrameShape(QFrame.NoFrame)
+        self.chat_area.setStyleSheet(
+            "background: transparent; color: #F5F5F7; font-size: 13px; border: none;"
+        )
+        self.chat_area.setHtml(self._welcome_html())
+        card_layout.addWidget(self.chat_area)
+
+        root.addWidget(history_card, 1)
+
+        # ── Composer bar ───────────────────────────────────────────
+        composer = QFrame()
+        composer.setObjectName("Card")
+        composer.setFixedHeight(52)
+
+        bar = QHBoxLayout(composer)
+        bar.setContentsMargins(12, 0, 12, 0)
+        bar.setSpacing(8)
+
+        self.input_field = QLineEdit()
+        self.input_field.setPlaceholderText("Message DesktopAI...")
+        self.input_field.setStyleSheet(
+            "background: transparent; border: none; "
+            "color: #F5F5F7; font-size: 13px;"
+        )
+        self.input_field.returnPressed.connect(self._send_message)
+        bar.addWidget(self.input_field, 1)
+
+        send_btn = QPushButton("Send")
+        send_btn.setObjectName("PrimaryButton")
+        send_btn.setFixedWidth(64)
+        send_btn.clicked.connect(self._send_message)
+        bar.addWidget(send_btn)
+
+        root.addWidget(composer)
+
+    def _welcome_html(self) -> str:
+        return """
+        <div style='font-family: -apple-system, Segoe UI, sans-serif; padding: 8px;'>
+            <p style='color: #0A84FF; font-weight: 600; margin: 0 0 6px 0;
+                      font-size: 13px;'>DesktopAI</p>
+            <p style='color: #A1A1A6; margin: 0; font-size: 13px; line-height: 1.6;'>
+                Hello! I can help you organize files, find documents,
+                or explain your folder structure. What would you like to do?
+            </p>
+        </div>
+        """
+
+    def _send_message(self) -> None:
+        text = self.input_field.text().strip()
+        if not text:
+            return
+
+        # Append user message
+        self.chat_area.append(
+            f"<div style='margin: 12px 0 4px 0;'>"
+            f"<p style='color: #F5F5F7; font-weight: 600; margin: 0 0 4px 0; font-size: 13px;'>You</p>"
+            f"<p style='color: #F5F5F7; margin: 0; font-size: 13px;'>{text}</p>"
+            f"</div>"
+        )
+
+        self.input_field.clear()
+
+        # Placeholder AI response
+        self.chat_area.append(
+            "<div style='margin: 4px 0 12px 0;'>"
+            "<p style='color: #0A84FF; font-weight: 600; margin: 0 0 4px 0; font-size: 13px;'>DesktopAI</p>"
+            "<p style='color: #A1A1A6; margin: 0; font-size: 13px;'>"
+            "AI chat is connected and ready. Full response streaming arrives in Phase 3."
+            "</p></div>"
+        )

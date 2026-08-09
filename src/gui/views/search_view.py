@@ -1,91 +1,104 @@
 """
-DesktopAI v2.0 — Search View
+DesktopAI v2.0 — Search View (App Shell UI)
 File: src/gui/views/search_view.py
+
+Workbench layout:
+  - Search bar (full width)
+  - Results area (card with placeholder)
 """
 from __future__ import annotations
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QFont
+
+from PySide6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
+    QLineEdit, QFrame, QPushButton, QSizePolicy,
+)
+from PySide6.QtCore import Qt
+
+_PAD = 24
+
 
 class SearchView(QWidget):
-    def __init__(self):
+    """Semantic search screen."""
+
+    def __init__(self) -> None:
         super().__init__()
-        self.setStyleSheet("background-color: transparent;")
-        
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(40, 40, 40, 40)
-        layout.setSpacing(20)
-        
-        title = QLabel("Semantic Search")
-        title.setFont(QFont("Segoe UI", 28, QFont.Weight.Bold))
-        title.setStyleSheet("color: #FFFFFF;")
-        layout.addWidget(title)
-        
-        subtitle = QLabel("Find anything in your files using natural language")
-        subtitle.setStyleSheet("color: #A1A1AA; font-size: 14px;")
-        layout.addWidget(subtitle)
-        layout.addSpacing(20)
-        
+        self._setup_ui()
+
+    def _setup_ui(self) -> None:
+        root = QVBoxLayout(self)
+        root.setContentsMargins(_PAD, _PAD, _PAD, _PAD)
+        root.setSpacing(16)
+
+        # Sub-header
+        sub = QLabel(
+            "Find files using natural language — the AI understands context, not just keywords."
+        )
+        sub.setStyleSheet("color: #A1A1A6; font-size: 13px;")
+        root.addWidget(sub)
+
+        # ── Search bar ─────────────────────────────────────────────
+        bar_row = QHBoxLayout()
+        bar_row.setSpacing(8)
+
         self.search_input = QLineEdit()
-        self.search_input.setPlaceholderText("🔍  Search your files... (e.g., 'invoices from 2023')")
-        self.search_input.setFixedHeight(56)
-        self.search_input.setStyleSheet("""
-            QLineEdit {
-                background-color: #0A0A0F; border: 1px solid #2A2A35;
-                border-radius: 12px; color: #FFFFFF; font-size: 16px; padding: 0 20px;
-            }
-            QLineEdit:focus { border: 1px solid #8B5CF6; background-color: #101018; }
-        """)
-        self.search_input.textChanged.connect(self._on_search_changed)
-        layout.addWidget(self.search_input)
-        
-        self.results_label = QLabel("Type to search...")
-        self.results_label.setStyleSheet("color: #71717A; font-size: 14px;")
-        layout.addWidget(self.results_label)
-        
-        self.results_list = QListWidget()
-        self.results_list.setStyleSheet("""
-            QListWidget {
-                background-color: #0A0A0F; border: 1px solid #1A1A24;
-                border-radius: 12px; color: #E4E4E7; font-size: 13px;
-            }
-            QListWidget::item { padding: 12px 16px; border-bottom: 1px solid #1A1A24; }
-            QListWidget::item:hover { background-color: rgba(139, 92, 246, 0.1); }
-        """)
-        self.results_list.setVisible(False)
-        layout.addWidget(self.results_list, 1)
-        layout.addStretch()
-        
-        self._search_timer = QTimer()
-        self._search_timer.setSingleShot(True)
-        self._search_timer.timeout.connect(self._perform_search)
-    
-    def _on_search_changed(self, text: str):
-        if text.strip():
-            self._search_timer.start(300)
-        else:
-            self.results_list.clear()
-            self.results_list.setVisible(False)
-            self.results_label.setText("Type to search...")
-    
-    def _perform_search(self):
-        query = self.search_input.text().strip()
-        if not query: return
-        
-        self.results_label.setText(f"Searching for '{query}'...")
-        self.results_list.clear()
-        
-        # Mock search results
-        mock_results = [
-            ("invoice_2023.pdf", "Finance", "0.94", "Total due: ₹24,500"),
-            ("budget_report.xlsx", "Finance", "0.87", "Q3 expenses summary"),
-            ("meeting_notes.docx", "Documents", "0.82", "Project discussion"),
-        ]
-        
-        self.results_list.setVisible(True)
-        for filename, category, score, snippet in mock_results:
-            item = QListWidgetItem(f"📄 {filename}")
-            item.setToolTip(f"{snippet}\nCategory: {category}\nRelevance: {score}")
-            self.results_list.addItem(item)
-        
-        self.results_label.setText(f"Found {len(mock_results)} results for '{query}'")
+        self.search_input.setObjectName("SearchInput")
+        self.search_input.setPlaceholderText(
+            "e.g.  invoices from March  or  python scripts about databases"
+        )
+        self.search_input.setFixedHeight(38)
+        bar_row.addWidget(self.search_input, 1)
+
+        search_btn = QPushButton("Search")
+        search_btn.setObjectName("PrimaryButton")
+        search_btn.setFixedHeight(38)
+        search_btn.setFixedWidth(80)
+        bar_row.addWidget(search_btn)
+
+        root.addLayout(bar_row)
+
+        # ── Results card ───────────────────────────────────────────
+        card = QFrame()
+        card.setObjectName("Card")
+        card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(20, 16, 20, 16)
+        card_layout.setSpacing(0)
+
+        # Card header
+        card_header = QHBoxLayout()
+        results_title = QLabel("Results")
+        results_title.setStyleSheet(
+            "color: #F5F5F7; font-size: 13px; font-weight: 600;"
+        )
+        card_header.addWidget(results_title)
+        card_header.addStretch()
+
+        self.results_count = QLabel("—")
+        self.results_count.setStyleSheet("color: #6C6C70; font-size: 12px;")
+        card_header.addWidget(self.results_count)
+
+        card_layout.addLayout(card_header)
+
+        # Separator
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        sep.setStyleSheet(
+            "background: rgba(255,255,255,0.08); border: none; max-height: 1px;"
+        )
+        card_layout.addSpacing(12)
+        card_layout.addWidget(sep)
+        card_layout.addSpacing(12)
+
+        # Empty state
+        self.empty_label = QLabel(
+            "Type a search query above and press Search.\n"
+            "Build the search index by scanning a folder first."
+        )
+        self.empty_label.setAlignment(Qt.AlignCenter)
+        self.empty_label.setStyleSheet(
+            "color: #6C6C70; font-size: 13px; line-height: 1.6;"
+        )
+        card_layout.addWidget(self.empty_label, 1, Qt.AlignCenter)
+
+        root.addWidget(card, 1)
