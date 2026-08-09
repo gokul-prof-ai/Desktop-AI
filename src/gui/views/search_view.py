@@ -3,6 +3,8 @@ DesktopAI v2.0 — Search View
 File: src/gui/views/search_view.py
 """
 from __future__ import annotations
+from pathlib import Path
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
@@ -10,12 +12,18 @@ from PySide6.QtWidgets import (
     QTableWidgetItem, QHeaderView, QStackedWidget,
 )
 
+from core.logger import get_logger
+from services import FileService
+
+logger = get_logger(__name__)
+
 
 class SearchView(QWidget):
 
-    def __init__(self) -> None:
+    def __init__(self, service: FileService) -> None:
         super().__init__()
-        self._results: list = []
+        self._service = service
+        self._scan_results: list[dict] = []   # cached for keyword fallback
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -30,7 +38,7 @@ class SearchView(QWidget):
         sub.setObjectName("Muted")
         layout.addWidget(sub)
 
-        # Search bar card
+        # Search bar
         bar_card = QFrame()
         bar_card.setObjectName("Card")
         bar_card.setFixedHeight(56)
@@ -81,7 +89,6 @@ class SearchView(QWidget):
         empty_layout = QVBoxLayout(empty)
         empty_layout.setAlignment(Qt.AlignCenter)
         empty_layout.setSpacing(8)
-
         self.status_label = QLabel(
             "No scan loaded. Scan a folder on Home first,\n"
             "then search your files here."
@@ -89,7 +96,6 @@ class SearchView(QWidget):
         self.status_label.setObjectName("Muted")
         self.status_label.setAlignment(Qt.AlignCenter)
         empty_layout.addWidget(self.status_label)
-
         self.result_stack.addWidget(empty)
 
         # Results table
@@ -100,7 +106,7 @@ class SearchView(QWidget):
 
         self.table = QTableWidget()
         self.table.setColumnCount(4)
-        self.table.setHorizontalHeaderLabels(["File", "Category", "Size", "Path"])
+        self.table.setHorizontalHeaderLabels(["File", "Category", "Score", "Path"])
         self.table.setAlternatingRowColors(True)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectRows)
@@ -116,32 +122,75 @@ class SearchView(QWidget):
         tc_layout.addWidget(self.table)
         self.result_stack.addWidget(table_card)
 
+    # ── Public API ────────────────────────────────────────────────
+
     def set_scan_context(self, scan_path: str, results: list) -> None:
-        self._results = results
+        """Called by MainWindow after a scan. results = list of scan dicts."""
+        self._scan_results = results
+        count = len(results)
         self.status_label.setText(
-            f"{len(results)} files indexed from scan.\n"
-            "Enter a search query above."
+            f"{count} files indexed from scan.\nEnter a search query above."
         )
 
+    # ── Search ───────────────────────────────────────────────────
+
     def _do_search(self) -> None:
-        query = self.search_input.text().strip().lower()
-        if not query or not self._results:
+        query = self.search_input.text().strip()
+        if not query:
             return
 
+        # Try semantic search via FileService (uses FAISS)
+        matches = self._service.search(query, top_k=20)
+
+        if matches:
+            self._populate_from_semantic(matches)
+        elif self._scan_results:
+            # Fallback: simple keyword match on the cached scan results
+            self._populate_from_keyword(query)
+        else:
+            self.status_label.setText("No index found. Run 'Build Index' from Settings first.")
+            self.result_stack.setCurrentIndex(0)
+
+    def _populate_from_semantic(self, matches: list[dict]) -> None:
+        """Fill table from FileService.search() results."""
+        self.table.setRowCount(len(matches))
+        for row, m in enumerate(matches):
+            p = Path(m["path"])
+            score_pct = int(m["score"] * 100)
+
+            # Try to look up category from cached scan results
+            category = "—"
+            for r in self._scan_results:
+                if r["path"] == str(p):
+                    category = r.get("category", "—")
+                    break
+
+            self.table.setItem(row, 0, QTableWidgetItem(p.name))
+            self.table.setItem(row, 1, QTableWidgetItem(category))
+            self.table.setItem(row, 2, QTableWidgetItem(f"{score_pct}%"))
+            self.table.setItem(row, 3, QTableWidgetItem(str(p.parent)))
+            self.table.setRowHeight(row, 36)
+
+        self.result_stack.setCurrentIndex(1)
+
+    def _populate_from_keyword(self, query: str) -> None:
+        """Fallback keyword search over scan results."""
+        q = query.lower()
         matches = [
-            r for r in self._results
-            if query in r.file_info.filename.lower()
-            or (r.category and query in r.category.lower())
-            or (r.file_info.text_content and query in r.file_info.text_content.lower())
+            r for r in self._scan_results
+            if q in r["filename"].lower()
+            or q in r.get("category", "").lower()
         ]
 
         self.table.setRowCount(len(matches))
         for row, r in enumerate(matches):
-            fi = r.file_info
-            self.table.setItem(row, 0, QTableWidgetItem(fi.filename))
-            self.table.setItem(row, 1, QTableWidgetItem(r.category or "—"))
-            self.table.setItem(row, 2, QTableWidgetItem(fi.display_size))
-            self.table.setItem(row, 3, QTableWidgetItem(str(fi.path.parent)))
+            p = Path(r["path"])
+            self.table.setItem(row, 0, QTableWidgetItem(r["filename"]))
+            self.table.setItem(row, 1, QTableWidgetItem(r.get("category", "—")))
+            self.table.setItem(row, 2, QTableWidgetItem("keyword"))
+            self.table.setItem(row, 3, QTableWidgetItem(str(p.parent)))
             self.table.setRowHeight(row, 36)
 
-        self.result_stack.setCurrentIndex(1)
+        self.result_stack.setCurrentIndex(1 if matches else 0)
+        if not matches:
+            self.status_label.setText(f"No results for '{query}'.")

@@ -2,16 +2,16 @@
 DesktopAI v2.0 — Apply / Undo Workers
 File: src/gui/workers/apply_worker.py
 
-Background threads that execute the organization plan and undo batches.
-Keeps the UI responsive during file operations.
+Background threads that execute the organization plan and undo batches
+via FileService — never touching domain classes directly.
 """
 from __future__ import annotations
-import uuid
 from pathlib import Path
 
 from PySide6.QtCore import QThread, Signal
 
 from core.logger import get_logger
+from services import FileService
 
 logger = get_logger(__name__)
 
@@ -19,58 +19,63 @@ logger = get_logger(__name__)
 class ApplyWorker(QThread):
     """Executes the organization plan on a background thread."""
 
-    progress = Signal(int, int)            # (done, total)
-    file_moved = Signal(str, str)          # (source_name, target_path)
-    finished_apply = Signal(int, int, int, str)  # success, failed, skipped, batch_id
+    progress      = Signal(int, int)            # (done, total)
+    file_moved    = Signal(str, str)            # (source_name, target_path)
+    finished_apply = Signal(int, int, int, str) # success, failed, skipped, batch_id
     error_occurred = Signal(str)
 
-    def __init__(self, analysis_results: list, target_folder: Path, parent=None):
+    def __init__(
+        self,
+        service: FileService,
+        scan_results: list[dict],
+        target_folder: Path,
+        parent=None,
+    ):
         super().__init__(parent)
-        self._results = analysis_results
+        self._service       = service
+        self._scan_results  = scan_results
         self._target_folder = Path(target_folder)
-        self._is_cancelled = False
+        self._is_cancelled  = False
 
     def cancel(self) -> None:
         self._is_cancelled = True
 
     def run(self) -> None:
         try:
-            from domain.organizer.organizer import AutoOrganizer
-            from domain.organizer.planner import OrganizationPlanner
-
-            files = [r.file_info for r in self._results if not r.skipped]
-            if not files:
-                self.finished_apply.emit(0, 0, 0, "")
+            # Plan
+            plan = self._service.plan_organisation(
+                target_folder=self._target_folder,
+                scan_results=self._scan_results,
+            )
+            if not plan:
+                self.finished_apply.emit(0, 0, len(self._scan_results), "")
                 return
 
-            planner = OrganizationPlanner()
-            actions = planner.create_plan(files, self._target_folder)
-            if not actions:
-                self.finished_apply.emit(0, 0, len(files), "")
-                return
+            total = len(plan)
 
-            organizer = AutoOrganizer()
-            batch_id = str(uuid.uuid4())
-            total = len(actions)
-            success = failed = skipped = 0
+            # Apply with per-file progress
+            def _progress(pct: int, msg: str) -> None:
+                done = max(1, int(pct / 100 * total))
+                self.progress.emit(done, total)
 
-            for i, action in enumerate(actions, 1):
-                if self._is_cancelled:
-                    break
-                stats = organizer.execute_plan([action], batch_id)
-                success += stats["success"]
-                failed += stats["failed"]
-                skipped += stats["skipped"]
-                if action.is_success:
+            stats = self._service.apply_plan(plan, progress_callback=_progress)
+
+            # Emit per-file signals for the live log
+            for p in plan:
+                if p.get("success"):
                     self.file_moved.emit(
-                        action.source_path.name,
-                        str(action.actual_target_path),
+                        Path(p["source"]).name,
+                        p["destination"],
                     )
-                self.progress.emit(i, total)
 
-            logger.info("ApplyWorker done: %d ok, %d failed, %d skipped",
-                        success, failed, skipped)
-            self.finished_apply.emit(success, failed, skipped, batch_id)
+            logger.info(
+                "ApplyWorker done: %d ok, %d failed, %d skipped",
+                stats["success"], stats["failed"], stats["skipped"],
+            )
+            self.finished_apply.emit(
+                stats["success"], stats["failed"], stats["skipped"],
+                stats.get("batch_id", ""),
+            )
 
         except Exception as exc:
             logger.error("ApplyWorker error: %s", exc, exc_info=True)
@@ -80,19 +85,21 @@ class ApplyWorker(QThread):
 class UndoWorker(QThread):
     """Reverses a batch on a background thread."""
 
-    finished_undo = Signal(int, str)  # reversed_count, batch_id
+    finished_undo  = Signal(int, str)  # reversed_count, batch_id
     error_occurred = Signal(str)
 
-    def __init__(self, batch_id: str, parent=None):
+    def __init__(self, service: FileService, batch_id: str, parent=None):
         super().__init__(parent)
-        self._batch_id = batch_id
+        self._service   = service
+        self._batch_id  = batch_id
 
     def run(self) -> None:
         try:
-            from domain.organizer.organizer import AutoOrganizer
-            organizer = AutoOrganizer()
-            count = organizer.undo_last_batch(self._batch_id)
-            self.finished_undo.emit(count, self._batch_id)
+            result = self._service.undo_last(self._batch_id)
+            if result["error"]:
+                self.error_occurred.emit(result["error"])
+            else:
+                self.finished_undo.emit(result["reversed"], self._batch_id)
         except Exception as exc:
             logger.error("UndoWorker error: %s", exc, exc_info=True)
             self.error_occurred.emit(str(exc))

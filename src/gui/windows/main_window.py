@@ -23,6 +23,7 @@ from gui.views.settings_view import SettingsView
 from gui.components.animated_stack import AnimatedStackedWidget
 from infrastructure.config.settings import Settings
 from core.logger import get_logger
+from services import FileService
 
 logger = get_logger(__name__)
 
@@ -47,10 +48,23 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(APP_NAME)
         self.resize(WINDOW_DEFAULT_WIDTH, WINDOW_DEFAULT_HEIGHT)
         self.setMinimumSize(1100, 680)
+
+        # Single FileService instance shared across all views
+        self._service = FileService()
+        self._service.open()
+
         self._build_ui()
         self._connect_events()
         self._setup_shortcuts()
         logger.info("MainWindow ready")
+
+    def closeEvent(self, event) -> None:
+        """Close DB cleanly on window close."""
+        try:
+            self._service.close()
+        except Exception:
+            pass
+        super().closeEvent(event)
 
     # ── Build UI ───────────────────────────────────────────────────
 
@@ -172,9 +186,9 @@ class MainWindow(QMainWindow):
 
         # Views
         self.stack = AnimatedStackedWidget()
-        self.home_view     = HomeView()
-        self.organize_view = OrganizeView()
-        self.search_view   = SearchView()
+        self.home_view     = HomeView(self._service)
+        self.organize_view = OrganizeView(self._service)
+        self.search_view   = SearchView(self._service)
         self.chat_view     = ChatView()
         self.history_view  = HistoryView()
         self.settings_view = SettingsView()

@@ -15,10 +15,9 @@ from PySide6.QtWidgets import (
 )
 
 from core.logger import get_logger
-from domain.scanner.file_info import AnalysisResult
 from gui.components.trendy_drop_zone import MagneticDropZone
 from gui.viewmodels.home_vm import HomeViewModel
-from infrastructure.storage.database import DB
+from services import FileService
 
 logger = get_logger(__name__)
 
@@ -48,11 +47,12 @@ def _conf_tag(confidence: float) -> tuple[str, str]:
 class HomeView(QWidget):
     scan_ready = Signal(str, list)
 
-    def __init__(self) -> None:
+    def __init__(self, service: FileService) -> None:
         super().__init__()
+        self._service = service
         self.vm = HomeViewModel()
         self.current_scan_path: str | None = None
-        self.results: list[AnalysisResult] = []
+        self.results: list[dict] = []
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -127,7 +127,7 @@ class HomeView(QWidget):
         self.stat_ops   = self._stat_card("Operations", "0", "File operations performed")
 
         try:
-            stats = DB.get_stats()
+            stats = self._service.get_memory_stats()
             self.stat_files.value_label.setText(str(stats["total_files"]))
             self.stat_ops.value_label.setText(str(stats["total_operations"]))
         except Exception:
@@ -315,14 +315,36 @@ class HomeView(QWidget):
         self.progress_detail.setText(f"{done} of {total} files classified")
 
     def _on_completed(self, results: list) -> None:
-        self.results = results
+        """results is list[AnalysisResult] from ScannerWorker; convert to dicts."""
+        # ScannerWorker emits domain AnalysisResult objects — convert to plain dicts
+        # so the rest of the app only passes dicts through FileService.
+        if results and hasattr(results[0], "file_info"):
+            dicts = [
+                {
+                    "path":       str(r.file_info.path),
+                    "filename":   r.file_info.filename,
+                    "extension":  r.file_info.extension,
+                    "size_bytes": r.file_info.size_bytes,
+                    "category":   r.category,
+                    "confidence": r.confidence,
+                    "method":     r.method,
+                    "skipped":    r.skipped,
+                    "skip_reason": r.skip_reason,
+                }
+                for r in results
+            ]
+        else:
+            dicts = results  # already plain dicts
+
+        self.results = dicts
         self.progress_card.setVisible(False)
-        count = len(results)
-        cats = {r.category for r in results if r.category}
+        count = len(dicts)
+        cats = {r["category"] for r in dicts if r.get("category")}
+
         ops = 0
         try:
-            ops = len([h for h in DB.get_history(limit=99999)
-                       if h.get("status") in {"completed", "undone"}])
+            stats = self._service.get_memory_stats()
+            ops = stats["total_operations"]
         except Exception:
             pass
 
@@ -330,27 +352,24 @@ class HomeView(QWidget):
         self.res_cats_stat.value_label.setText(str(len(cats)))
         self.res_ops_stat.value_label.setText(str(ops))
         self.results_count_lbl.setText(f"{count} files")
-        self._populate_table(results)
+        self._populate_table(dicts)
 
         if self.current_scan_path:
-            self.scan_ready.emit(self.current_scan_path, results)
+            self.scan_ready.emit(self.current_scan_path, dicts)
 
     def _on_failed(self, error: str) -> None:
         self.progress_card.setVisible(False)
         self.scan_status.setText(f"Scan failed — {error}")
         logger.error("Scan failed: %s", error)
 
-    def _populate_table(self, results: list) -> None:
+    def _populate_table(self, results: list[dict]) -> None:
         self.table.setRowCount(len(results))
-        for row, result in enumerate(results):
-            fi = result.file_info
-            icon = _file_icon(fi.extension)
+        for row, r in enumerate(results):
+            icon = _file_icon(r.get("extension", ""))
+            self.table.setItem(row, 0, QTableWidgetItem(f"{icon}  {r['filename']}"))
+            self.table.setItem(row, 1, QTableWidgetItem(r.get("category") or "—"))
 
-            name_item = QTableWidgetItem(f"{icon}  {fi.filename}")
-            self.table.setItem(row, 0, name_item)
-            self.table.setItem(row, 1, QTableWidgetItem(result.category or "—"))
-
-            pct = int(result.confidence * 100)
+            pct = int((r.get("confidence") or 0) * 100)
             conf_item = QTableWidgetItem(f"{pct}%")
             if pct >= 80:
                 conf_item.setForeground(Qt.green)
@@ -359,12 +378,15 @@ class HomeView(QWidget):
             else:
                 conf_item.setForeground(Qt.red)
             self.table.setItem(row, 2, conf_item)
-            self.table.setItem(row, 3, QTableWidgetItem(fi.display_size))
+
+            size = r.get("size_bytes", 0)
+            size_str = f"{size / 1024:.1f} KB" if size < 1_048_576 else f"{size / 1_048_576:.1f} MB"
+            self.table.setItem(row, 3, QTableWidgetItem(size_str))
             self.table.setRowHeight(row, 36)
 
     def _open_file(self, row: int, _col: int) -> None:
         if 0 <= row < len(self.results):
-            p = self.results[row].file_info.path
+            p = Path(self.results[row]["path"])
             if p.exists():
                 QDesktopServices.openUrl(QUrl.fromLocalFile(str(p)))
 
