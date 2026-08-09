@@ -26,6 +26,7 @@ class ModernMainWindow(QMainWindow):
     navigate_home = Signal()
     navigate_organize = Signal()
     navigate_search = Signal()
+    navigate_watcher = Signal()
     navigate_chat = Signal()
     navigate_settings = Signal()
     
@@ -123,6 +124,7 @@ class ModernMainWindow(QMainWindow):
             ("🏠", "Dashboard", "home"),
             ("📁", "Organize", "organize"),
             ("🔍", "Search", "search"),
+            ("👁️", "Watcher", "watcher"),
             ("💬", "Chat", "chat"),
             ("⚙️", "Settings", "settings"),
         ]
@@ -646,6 +648,8 @@ class ModernMainWindow(QMainWindow):
                 self.navigate_organize.emit()
             elif nav_id == "search":
                 self.navigate_search.emit()
+            elif nav_id == "watcher":
+                self.navigate_watcher.emit()
             elif nav_id == "chat":
                 self.navigate_chat.emit()
             elif nav_id == "settings":

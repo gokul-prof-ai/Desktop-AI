@@ -624,3 +624,19 @@ def validate_config() -> None:
 
 ensure_directories()
 validate_config()
+
+# ============================================================
+# FOLDER WATCHER
+# ============================================================
+
+# Folders monitored by FolderWatcher.
+# Override via DESKTOP_AI_WATCH_FOLDERS (colon-separated paths).
+_watch_folders_env = os.getenv("DESKTOP_AI_WATCH_FOLDERS", "")
+WATCH_FOLDERS: list[Path] = (
+    [Path(p) for p in _watch_folders_env.split(":") if p.strip()]
+    if _watch_folders_env
+    else [Path.home() / "Downloads", Path.home() / "Desktop"]
+)
+
+WATCH_STABILITY_SECONDS: int = _get_int("WATCH_STABILITY_SECONDS", 2)
+WATCH_POLL_INTERVAL_SECONDS: int = _get_int("WATCH_POLL_INTERVAL_SECONDS", 1)

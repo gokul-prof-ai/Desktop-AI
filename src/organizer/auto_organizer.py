@@ -18,6 +18,7 @@ from documents.docx_reader import read_docx_text
 from documents.excel_reader import read_excel_text
 from documents.ocr_reader import read_image_text
 from core import config
+from memory.memory_store import MemoryStore
 
 logger = get_logger("organizer")
 
@@ -31,9 +32,12 @@ class AutoOrganizer:
         self.scanner = FileScanner()
         self._history: List[OrganizationAction] = []
         self._is_cancelled = False
+        self._memory = MemoryStore(config.DATA_DIR / "memory.db")
+        self._memory.connect()
 
     def cancel(self): self._is_cancelled = True
     def reset_cancel(self): self._is_cancelled = False
+    def close(self): self._memory.close()
 
     def analyze_and_plan(self, target_folder: Path, progress_callback: Optional[Callable[[int, int, str], None]] = None) -> OrganizationPlan:
         self.reset_cancel()
@@ -63,7 +67,10 @@ class AutoOrganizer:
                 if ai_result:
                     category = ai_result["category"]
                     safe_category = "".join(c for c in category if c.isalnum() or c in (' ', '-', '_')).rstrip()
-                    dest_folder = target_folder / safe_category
+                    preferred = self._memory.get_preferred_folder(category)
+                    dest_folder = Path(preferred) if preferred else target_folder / safe_category
+                    if preferred:
+                        ai_result["reason"] += " (📚 memory)"
                     dest_path = self._get_unique_path(dest_folder / file_name)
                     return OrganizationAction(source=file_path, destination=dest_path, status="pending", category=category, confidence=ai_result["confidence"], reason=ai_result["reason"])
                 else:
@@ -148,6 +155,10 @@ class AutoOrganizer:
                 if moved:
                     action.status = "moved"
                     self._history.append(action)
+                    try:
+                        self._memory.record_folder_choice(action.category, str(action.destination.parent))
+                    except Exception:
+                        pass
                     
             except PermissionError:
                 action.status, action.reason = "failed", "Permission denied (File locked?)"
