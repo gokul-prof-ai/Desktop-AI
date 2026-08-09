@@ -243,10 +243,53 @@ class MainWindow(QMainWindow):
         self.page_title.setText(self.sections[index])
 
     def _on_scan_ready(self, scan_path: str, results: list) -> None:
-        self.organize_view.set_scan_context(scan_path, results)
-        self.search_view.set_scan_context(scan_path, results)
-        self.chat_view.set_scan_context(scan_path, results)
-        self.history_view.refresh()
+        """
+        Broadcast completed scan results to every view that can use them.
+
+        Each call is wrapped defensively: if a view has not yet implemented
+        the expected method, we log a warning instead of crashing the app.
+        This keeps the scan pipeline resilient while views are built out.
+        """
+        self._broadcast_scan_context(scan_path, results)
+
+    def _broadcast_scan_context(self, scan_path: str, results: list) -> None:
+        """
+        Forward scan results to every view that supports them.
+
+        Missing methods are logged once (per view, per method) and never
+        raise — the scan flow is more important than any single view.
+        """
+        targets: list[tuple[object, str, str]] = [
+            (self.organize_view, "set_scan_context", "OrganizeView"),
+            (self.search_view,   "set_scan_context", "SearchView"),
+            (self.chat_view,     "set_scan_context", "ChatView"),
+            (self.history_view,  "refresh",          "HistoryView"),
+        ]
+
+        for view, method_name, view_name in targets:
+            fn = getattr(view, method_name, None)
+            if not callable(fn):
+                logger.debug(
+                    "%s.%s() not yet implemented — skipping scan broadcast.",
+                    view_name, method_name,
+                )
+                continue
+
+            try:
+                if method_name == "refresh":
+                    fn()
+                else:
+                    fn(scan_path, results)
+            except Exception as exc:
+                logger.warning(
+                    "%s.%s() raised %s: %s",
+                    view_name, method_name, type(exc).__name__, exc,
+                )
+
+        logger.info(
+            "Scan context broadcast to %d views (path=%s, %d results).",
+            len(targets), scan_path, len(results or []),
+        )
 
     # ── Shortcuts ──────────────────────────────────────────────────
 
