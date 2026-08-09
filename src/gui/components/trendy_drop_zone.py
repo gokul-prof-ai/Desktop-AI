@@ -1,5 +1,5 @@
 """
-DesktopAI v2.0 — Magnetic Drop Zone (Fixed)
+DesktopAI v2.0 — Magnetic Drop Zone (Fixed Folder Selection)
 File: src/gui/components/trendy_drop_zone.py
 """
 from __future__ import annotations
@@ -65,7 +65,7 @@ class MagneticDropZone(QWidget):
         layout.setContentsMargins(40, 40, 40, 40)
         layout.setSpacing(16)
         
-        self.title_label = QLabel("Drop files here")
+        self.title_label = QLabel("Drop folder here")
         self.title_label.setAlignment(Qt.AlignCenter)
         self.title_label.setStyleSheet("color: #E4E4E7; font-size: 22px; font-weight: 600; font-family: 'Segoe UI', sans-serif;")
         layout.addWidget(self.title_label)
@@ -197,7 +197,6 @@ class MagneticDropZone(QWidget):
         gradient.setColorAt(0, QColor(255, 255, 255, 200))
         gradient.setColorAt(0.3, self._color_core)
         
-        # FIX: Create transparent color properly for PySide6
         transparent_color = QColor(self._color_core)
         transparent_color.setAlpha(0)
         gradient.setColorAt(1, transparent_color)
@@ -241,14 +240,15 @@ class MagneticDropZone(QWidget):
             self._state = self.STATE_SUCCESS
             QTimer.singleShot(1000, lambda: self._reset_state())
             
-            files = [url.toLocalFile() for url in event.mimeData().urls() if url.isLocalFile()]
-            if files:
-                self.files_dropped.emit(files)
-                self.folder_selected.emit(files[0])
+            # Get the first dropped item (folder or file)
+            for url in event.mimeData().urls():
+                if url.isLocalFile():
+                    self.folder_selected.emit(url.toLocalFile())
+                    break
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
-            self._open_file_dialog()
+            self._open_folder_dialog()
 
     def enterEvent(self, event):
         self._state = self.STATE_HOVER
@@ -259,7 +259,13 @@ class MagneticDropZone(QWidget):
     def _reset_state(self):
         self._state = self.STATE_IDLE
 
-    def _open_file_dialog(self):
-        file_path, _ = QFileDialog.getOpenFileName(self, "Select File or Folder", "", "All Files (*)")
-        if file_path:
-            self.folder_selected.emit(file_path)
+    # ── FIXED: Now opens a Folder Selection Dialog ─────────────────────
+    def _open_folder_dialog(self):
+        folder_path = QFileDialog.getExistingDirectory(
+            self, 
+            "Select Folder to Organize", 
+            "", 
+            QFileDialog.Option.ShowDirsOnly | QFileDialog.Option.DontResolveSymlinks
+        )
+        if folder_path:
+            self.folder_selected.emit(folder_path)

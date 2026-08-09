@@ -19,7 +19,7 @@ __app_name__ = "DesktopAI"
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="desktop-ai",
-        description=f"{__app_name__} v{__version__} — Modern AI-powered file organizer",
+        description=f"{__app_name__} v{__version__} — Local AI-powered file organizer",
     )
     parser.add_argument("--version", "-v", action="version",
                         version=f"{__app_name__} v{__version__}")
@@ -44,36 +44,30 @@ def _setup_ai_gateway(use_mock: bool) -> None:
 def _launch_gui(args: argparse.Namespace) -> int:
     from core.logger import get_logger
     from infrastructure.config.settings import Settings
-    from infrastructure.ai.gateway import AIGateway
     from infrastructure.storage.database import DB
     from PySide6.QtWidgets import QApplication
     from PySide6.QtGui import QFont
-    
-    # Import your main window. 
-    # NOTE: If your main_window.py uses 'ModernMainWindow', change the import below.
-    from gui.windows.main_window import MainWindow 
-    
+    from gui.windows.main_window import MainWindow
+
     logger = get_logger(__name__)
     logger.info("Launching DesktopAI v%s — GUI", __version__)
-    
+
     app = QApplication(sys.argv)
     app.setApplicationName(__app_name__)
     app.setApplicationVersion(__version__)
-    
-    # Set default font
-    default_font = QFont("Segoe UI", 12)
-    app.setFont(default_font)
-    
-    # Apply modern dashboard stylesheet
-    qss_path = _SRC_DIR / "gui" / "theme" / "modern_dashboard.qss"
+    app.setFont(QFont("Segoe UI", 13))
+
+    # Load App Shell UI stylesheet
+    qss_path = _SRC_DIR / "gui" / "theme" / "app_shell.qss"
     if qss_path.exists():
         app.setStyleSheet(qss_path.read_text(encoding="utf-8"))
-        logger.info("Applied modern dashboard stylesheet")
-    
-    # Create and show main window
+        logger.info("Applied App Shell UI stylesheet")
+    else:
+        logger.warning("app_shell.qss not found at %s", qss_path)
+
     window = MainWindow()
     window.show()
-    
+
     logger.info("GUI launched successfully")
     return app.exec()
 
@@ -86,23 +80,18 @@ def _launch_cli(args: argparse.Namespace) -> int:
 def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
-    
-    # Step 1 — Logging
+
     from core.logger import configure
     configure(debug=args.debug)
-    
-    # Step 2 — Settings
+
     from infrastructure.config.settings import Settings
     Settings.load(config_path=args.config)
-    
-    # Step 3 — AI Gateway
+
     _setup_ai_gateway(use_mock=args.mock_ai)
-    
-    # Step 4 — Database
+
     from infrastructure.storage.database import DB
     DB.connect()
-    
-    # Step 5 — Launch
+
     try:
         if args.cli:
             exit_code = _launch_cli(args)
@@ -110,7 +99,7 @@ def main() -> None:
             exit_code = _launch_gui(args)
     finally:
         DB.close()
-    
+
     sys.exit(exit_code)
 
 

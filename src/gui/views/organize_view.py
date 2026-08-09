@@ -2,7 +2,9 @@
 DesktopAI v2.0 — Organize View
 File: src/gui/views/organize_view.py
 """
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QFrame, QPushButton, QHBoxLayout
+from __future__ import annotations
+from pathlib import Path
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel, QFrame, QPushButton, QHBoxLayout, QFileDialog
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 
@@ -15,25 +17,20 @@ class OrganizeView(QWidget):
         layout.setContentsMargins(40, 40, 40, 40)
         layout.setSpacing(24)
         
-        # Header
         title = QLabel("Organize Files")
         title.setFont(QFont("Segoe UI", 28, QFont.Weight.Bold))
         title.setStyleSheet("color: #FFFFFF;")
         layout.addWidget(title)
         
         subtitle = QLabel("Review AI suggestions and apply organization plans.")
-        subtitle.setFont(QFont("Segoe UI", 14))
-        subtitle.setStyleSheet("color: #A1A1AA;")
+        subtitle.setStyleSheet("color: #A1A1AA; font-size: 14px;")
         layout.addWidget(subtitle)
-        
         layout.addSpacing(20)
         
-        # Main Action Card
         card = QFrame()
         card.setStyleSheet("""
             QFrame {
-                background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                    stop:0 rgba(139, 92, 246, 0.1), stop:1 rgba(59, 130, 246, 0.05));
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:1, stop:0 rgba(139, 92, 246, 0.1), stop:1 rgba(59, 130, 246, 0.05));
                 border: 1px solid rgba(139, 92, 246, 0.3);
                 border-radius: 16px;
             }
@@ -52,15 +49,14 @@ class OrganizeView(QWidget):
         card_layout.addWidget(card_text)
         
         btn = QPushButton("Start New Organization")
-        btn.setFixedSize(200, 44)
+        btn.setFixedSize(220, 48)
         btn.setStyleSheet("""
             QPushButton {
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #8B5CF6, stop:1 #3B82F6);
-                color: white; border: none; border-radius: 8px; font-weight: 600;
+                color: white; border: none; border-radius: 8px; font-weight: 600; font-size: 14px;
             }
             QPushButton:hover { opacity: 0.9; }
         """)
         card_layout.addWidget(btn, alignment=Qt.AlignLeft)
-        
         layout.addWidget(card)
         layout.addStretch()
