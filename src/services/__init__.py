@@ -2,15 +2,12 @@
 DesktopAI v2.0 — Services Layer
 File: src/services/__init__.py
 
-Public API for this package. Import FileService from here.
+Public application-service API.
 
-Usage:
-    from services import FileService
-    from services import file_service  # module, if needed
-
-Do NOT import domain or infrastructure classes directly in the GUI.
-Use FileService exclusively.
+GUI and future application entry points should depend on these facades
+instead of importing domain/infrastructure implementations directly.
 """
 from services.file_service import FileService
+from services.watcher_service import WatcherService
 
-__all__ = ["FileService"]
+__all__ = ["FileService", "WatcherService"]
