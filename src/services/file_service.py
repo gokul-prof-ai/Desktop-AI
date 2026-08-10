@@ -34,8 +34,8 @@ logger = get_logger(__name__)
 
 
 def _display_path(path: Path | str) -> str:
-    """Return a stable, platform-independent path representation."""
-    return Path(path).as_posix()
+    """Return the filesystem path using the host platform's native format."""
+    return str(path)
 
 
 def _action_to_dict(action: OrganizationAction) -> dict:
@@ -43,7 +43,9 @@ def _action_to_dict(action: OrganizationAction) -> dict:
     return {
         "action_type": action.action_type,
         "source": _display_path(action.source_path),
-        "destination": _display_path(action.actual_target_path or action.planned_target_path),
+        "destination": _display_path(
+            action.actual_target_path or action.planned_target_path
+        ),
         "category": action.category,
         "confidence": round(action.confidence, 4),
         "success": action.is_success,
@@ -110,8 +112,7 @@ class FileService:
         if progress_callback:
             progress_callback(30, f"Classifying {len(files)} files…")
 
-        classifier = FileClassifier()
-        results: list[AnalysisResult] = classifier.classify_batch(files)
+        results: list[AnalysisResult] = FileClassifier().classify_batch(files)
         self._last_scan_results = results
 
         if progress_callback:
