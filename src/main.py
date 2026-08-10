@@ -22,7 +22,6 @@ __app_name__ = "DesktopAI"
 
 
 def _build_parser():
-
     parser = argparse.ArgumentParser(
         prog="desktop-ai",
         description=(
@@ -63,155 +62,89 @@ def _build_parser():
     return parser
 
 
-def _setup_ai_gateway(
-    use_mock: bool,
-):
-
-    from infrastructure.ai.gateway import (
-        AIGateway,
-    )
+def _setup_ai_gateway(use_mock: bool):
+    from infrastructure.ai.gateway import AIGateway
 
     if use_mock:
-
-        from infrastructure.ai.mock_provider import (
-            MockProvider,
-        )
+        from infrastructure.ai.mock_provider import MockProvider
 
         AIGateway.set_provider(
-            MockProvider(
-                delay_ms=100
-            )
+            MockProvider(delay_ms=100)
         )
-
     else:
-
-        from infrastructure.ai.ollama_provider import (
-            OllamaProvider,
-        )
+        from infrastructure.ai.ollama_provider import OllamaProvider
 
         AIGateway.set_provider(
             OllamaProvider()
         )
 
 
-def _launch_gui(
-    args,
-) -> int:
-
-    from PySide6.QtWidgets import (
-        QApplication,
-    )
-
+def _launch_gui(args) -> int:
     from PySide6.QtGui import QFont
+    from PySide6.QtWidgets import QApplication
 
     from core.logger import get_logger
-    from infrastructure.config.settings import Settings
-    from infrastructure.storage.database import DB
-    from gui.windows.main_window import MainWindow
     from gui.theme.app_shell import apply_theme
+    from gui.windows.main_window import MainWindow
+    from infrastructure.config.settings import Settings
+    from services import ApplicationServices
 
-    logger = get_logger(
-        __name__
-    )
+    logger = get_logger(__name__)
 
-    app = QApplication(
-        sys.argv
-    )
-
-    app.setApplicationName(
-        __app_name__
-    )
-
-    app.setApplicationVersion(
-        __version__
-    )
-
-    app.setFont(
-        QFont(
-            "Segoe UI",
-            10,
-        )
-    )
+    app = QApplication(sys.argv)
+    app.setApplicationName(__app_name__)
+    app.setApplicationVersion(__version__)
+    app.setFont(QFont("Segoe UI", 10))
 
     theme = (
         Settings.app.theme
-        if Settings.app.theme
-        in {"light", "dark"}
+        if Settings.app.theme in {"light", "dark"}
         else "dark"
     )
+    apply_theme(app, theme)
 
-    apply_theme(
-        app,
-        theme,
-    )
+    # Composition root: construct application-scoped services once and inject
+    # the container into the GUI shell. Views consume those shared services.
+    services = ApplicationServices()
+    services.start()
 
-    window = MainWindow()
-
+    window = MainWindow(services)
     window.show()
 
-    logger.info(
-        "DesktopAI GUI launched successfully."
-    )
+    logger.info("DesktopAI GUI launched successfully.")
 
     return app.exec()
 
 
-def _launch_cli(
-    args,
-) -> int:
-
-    print(
-        f"{__app_name__} v{__version__}"
-    )
-
+def _launch_cli(args) -> int:
+    print(f"{__app_name__} v{__version__}")
     return 0
 
 
 def main():
-
     parser = _build_parser()
-
     args = parser.parse_args()
 
     from core.logger import configure
-
-    configure(
-        debug=args.debug
-    )
+    configure(debug=args.debug)
 
     from infrastructure.config.settings import Settings
+    Settings.load(config_path=args.config)
 
-    Settings.load(
-        config_path=args.config
-    )
-
-    _setup_ai_gateway(
-        args.mock_ai
-    )
+    _setup_ai_gateway(args.mock_ai)
 
     from infrastructure.storage.database import DB
-
     DB.connect()
 
     try:
-
         if args.cli:
-            exit_code = _launch_cli(
-                args
-            )
-
+            exit_code = _launch_cli(args)
         else:
-            exit_code = _launch_gui(
-                args
-            )
-
+            exit_code = _launch_gui(args)
     finally:
-
         DB.close()
 
-    sys.exit(
-        exit_code
-    )
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":
