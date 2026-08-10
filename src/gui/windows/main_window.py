@@ -5,11 +5,11 @@ File: src/gui/windows/main_window.py
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, QSize
-from PySide6.QtGui import QKeySequence, QShortcut, QFont
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QListWidget, QListWidgetItem, QLabel, QFrame,
-    QPushButton, QSizePolicy,
+    QPushButton,
 )
 
 from core.constants import APP_NAME, WINDOW_DEFAULT_HEIGHT, WINDOW_DEFAULT_WIDTH
@@ -23,7 +23,7 @@ from gui.views.settings_view import SettingsView
 from gui.components.animated_stack import AnimatedStackedWidget
 from infrastructure.config.settings import Settings
 from core.logger import get_logger
-from services import FileService
+from services import ApplicationServices
 
 logger = get_logger(__name__)
 
@@ -40,8 +40,9 @@ _NAV = [
 
 class MainWindow(QMainWindow):
 
-    def __init__(self) -> None:
+    def __init__(self, services: ApplicationServices) -> None:
         super().__init__()
+        self.services = services
         self.current_theme = (
             Settings.app.theme if Settings.app.theme in {"light", "dark"} else "dark"
         )
@@ -49,8 +50,9 @@ class MainWindow(QMainWindow):
         self.resize(WINDOW_DEFAULT_WIDTH, WINDOW_DEFAULT_HEIGHT)
         self.setMinimumSize(1100, 680)
 
-        # Single FileService instance shared across all views
-        self._service = FileService()
+        # Services are created by the application composition root and injected
+        # into the shell. The shell only consumes them and owns their shutdown.
+        self._service = self.services.file_service
         self._service.open()
 
         self._build_ui()
@@ -59,11 +61,11 @@ class MainWindow(QMainWindow):
         logger.info("MainWindow ready")
 
     def closeEvent(self, event) -> None:
-        """Close DB cleanly on window close."""
+        """Release application services cleanly when the window closes."""
         try:
-            self._service.close()
+            self.services.close()
         except Exception:
-            pass
+            logger.exception("Failed to close application services cleanly.")
         super().closeEvent(event)
 
     # ── Build UI ───────────────────────────────────────────────────
@@ -243,22 +245,11 @@ class MainWindow(QMainWindow):
         self.page_title.setText(self.sections[index])
 
     def _on_scan_ready(self, scan_path: str, results: list) -> None:
-        """
-        Broadcast completed scan results to every view that can use them.
-
-        Each call is wrapped defensively: if a view has not yet implemented
-        the expected method, we log a warning instead of crashing the app.
-        This keeps the scan pipeline resilient while views are built out.
-        """
+        """Broadcast completed scan results to views that can use them."""
         self._broadcast_scan_context(scan_path, results)
 
     def _broadcast_scan_context(self, scan_path: str, results: list) -> None:
-        """
-        Forward scan results to every view that supports them.
-
-        Missing methods are logged once (per view, per method) and never
-        raise — the scan flow is more important than any single view.
-        """
+        """Forward scan results to every view that supports them."""
         targets: list[tuple[object, str, str]] = [
             (self.organize_view, "set_scan_context", "OrganizeView"),
             (self.search_view,   "set_scan_context", "SearchView"),
@@ -314,7 +305,7 @@ class MainWindow(QMainWindow):
         try:
             Settings.save()
         except Exception:
-            pass
+            logger.exception("Failed to persist theme setting.")
         self._update_theme_button()
 
     def _update_theme_button(self) -> None:
