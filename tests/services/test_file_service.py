@@ -191,7 +191,7 @@ def test_search_returns_plain_dicts(service: FileService) -> None:
         output = service.search("finance invoice", top_k=5)
 
     semantic_search.assert_called_once_with("finance invoice", top_k=5)
-    assert output == [{"path": "/docs/invoice.pdf", "score": 0.8765}]
+    assert output == [{"path": str(result.path), "score": 0.8765}]
 
 
 def test_build_index_success_reports_progress(service: FileService) -> None:
@@ -225,14 +225,13 @@ def test_get_memory_stats_returns_database_and_memory_data(service: FileService)
         "recent_sessions": [{"id": "session-1"}],
     }
 
-    with patch.object(service._organizer, "execute_plan"):
-        with patch("services.file_service.MemoryStore") as memory_store, patch(
-            "services.file_service.DB"
-        ) as db:
-            memory_store.get_all.return_value = preferences
-            db.get_stats.return_value = db_stats
+    with patch("services.file_service.MemoryStore") as memory_store, patch(
+        "services.file_service.DB"
+    ) as db:
+        memory_store.get_all.return_value = preferences
+        db.get_stats.return_value = db_stats
 
-            output = service.get_memory_stats()
+        output = service.get_memory_stats()
 
     assert output == {
         "preferences": preferences,
