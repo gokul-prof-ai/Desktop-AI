@@ -1,112 +1,86 @@
 """
-DesktopAI v2.0
-App Shell folder drop zone.
+DesktopAI v2.0 — Drop Zone Component
+File: src/gui/components/trendy_drop_zone.py
 
-Simple, reliable and theme-friendly.
+App Shell UI drop zone. Dashed border, hover highlight, clean typography.
 """
-
 from __future__ import annotations
+from pathlib import Path
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (
-    QFileDialog,
-    QFrame,
-    QLabel,
-    QVBoxLayout,
-)
+from PySide6.QtWidgets import QFileDialog, QFrame, QLabel, QVBoxLayout
 
 
 class MagneticDropZone(QFrame):
     """
-    Folder selection/drop component.
-
-    The class name is retained for compatibility with the existing
-    HomeView implementation.
+    Folder drop zone. Styled via QFrame#DropZone in app_shell.py.
     """
 
     folder_selected = Signal(str)
     files_dropped = Signal(list)
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None) -> None:
         super().__init__(parent)
-
-        self.setObjectName("Card")
+        self.setObjectName("DropZone")
         self.setAcceptDrops(True)
-        self.setMinimumSize(480, 260)
+        self.setMinimumSize(460, 220)
+        self.setMaximumSize(640, 280)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(32, 32, 32, 32)
-        layout.setSpacing(10)
+        layout.setContentsMargins(40, 32, 40, 32)
+        layout.setSpacing(8)
         layout.setAlignment(Qt.AlignCenter)
 
-        title = QLabel("Scan a folder")
+        icon = QLabel("⊞")
+        icon.setAlignment(Qt.AlignCenter)
+        icon.setStyleSheet("font-size: 32px; color: #6C6C70;")
+        layout.addWidget(icon)
+
+        title = QLabel("Drop folder here")
         title.setAlignment(Qt.AlignCenter)
         title.setStyleSheet(
-            "font-size: 20px; font-weight: 600;"
+            "font-size: 16px; font-weight: 600; color: #F5F5F7;"
         )
-
-        subtitle = QLabel(
-            "Drop a folder here or choose one from your computer."
-        )
-        subtitle.setAlignment(Qt.AlignCenter)
-        subtitle.setObjectName("Muted")
-        subtitle.setWordWrap(True)
-
-        button = QLabel(
-            "Click anywhere to choose a folder"
-        )
-        button.setAlignment(Qt.AlignCenter)
-        button.setObjectName("Muted")
-
         layout.addWidget(title)
-        layout.addWidget(subtitle)
-        layout.addSpacing(12)
-        layout.addWidget(button)
 
-    def dragEnterEvent(self, event):
+        sub = QLabel("or click to browse your computer")
+        sub.setAlignment(Qt.AlignCenter)
+        sub.setStyleSheet("font-size: 13px; color: #6C6C70;")
+        layout.addWidget(sub)
+
+        self._icon = icon
+
+    # ── Drag events ────────────────────────────────────────────────
+
+    def dragEnterEvent(self, event) -> None:
+        if event.mimeData().hasUrls():
+            self._set_hover(True)
+            event.acceptProposedAction()
+
+    def dragMoveEvent(self, event) -> None:
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
 
-    def dragMoveEvent(self, event):
-        if event.mimeData().hasUrls():
-            event.acceptProposedAction()
+    def dragLeaveEvent(self, event) -> None:
+        self._set_hover(False)
 
-    def dropEvent(self, event):
-        paths = [
-            url.toLocalFile()
-            for url in event.mimeData().urls()
-            if url.isLocalFile()
-        ]
-
-        if not paths:
-            return
-
-        folders = [
-            path
-            for path in paths
-            if self._is_directory(path)
-        ]
-
+    def dropEvent(self, event) -> None:
+        self._set_hover(False)
+        paths = [u.toLocalFile() for u in event.mimeData().urls() if u.isLocalFile()]
+        folders = [p for p in paths if Path(p).is_dir()]
         if folders:
             self.files_dropped.emit(folders)
             self.folder_selected.emit(folders[0])
-
         event.acceptProposedAction()
 
-    def mousePressEvent(self, event):
+    def mousePressEvent(self, event) -> None:
         if event.button() != Qt.LeftButton:
             return
-
-        folder = QFileDialog.getExistingDirectory(
-            self,
-            "Select Folder to Scan",
-        )
-
+        folder = QFileDialog.getExistingDirectory(self, "Select Folder to Scan")
         if folder:
             self.folder_selected.emit(folder)
 
-    @staticmethod
-    def _is_directory(path: str) -> bool:
-        from pathlib import Path
-
-        return Path(path).is_dir()
+    def _set_hover(self, active: bool) -> None:
+        """Visual feedback during drag — update icon color."""
+        color = "#0A84FF" if active else "#6C6C70"
+        self._icon.setStyleSheet(f"font-size: 32px; color: {color};")
