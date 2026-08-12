@@ -1,8 +1,6 @@
 """
 DesktopAI v2.0 — Drop Zone Component
 File: src/gui/components/trendy_drop_zone.py
-
-App Shell UI drop zone. Dashed border, hover highlight, clean typography.
 """
 from __future__ import annotations
 from pathlib import Path
@@ -13,7 +11,8 @@ from PySide6.QtWidgets import QFileDialog, QFrame, QLabel, QVBoxLayout
 
 class MagneticDropZone(QFrame):
     """
-    Folder drop zone. Styled via QFrame#DropZone in app_shell.py.
+    Folder drop/browse zone. Uses QFrame#DropZone objectName
+    so the dashed-border rule in app_shell.qss applies correctly.
     """
 
     folder_selected = Signal(str)
@@ -21,40 +20,44 @@ class MagneticDropZone(QFrame):
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
+
+        # Must match QFrame#DropZone rule in app_shell.py
         self.setObjectName("DropZone")
         self.setAcceptDrops(True)
-        self.setMinimumSize(460, 220)
-        self.setMaximumSize(640, 280)
+        self.setMinimumSize(480, 220)
+        self.setMaximumSize(680, 260)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(40, 32, 40, 32)
+        layout.setContentsMargins(40, 28, 40, 28)
         layout.setSpacing(8)
         layout.setAlignment(Qt.AlignCenter)
 
-        icon = QLabel("⊞")
-        icon.setAlignment(Qt.AlignCenter)
-        icon.setStyleSheet("font-size: 32px; color: #6C6C70;")
-        layout.addWidget(icon)
+        # Icon — uses objectName so QSS can color it
+        self._icon = QLabel("⊞")
+        self._icon.setObjectName("DropZoneIcon")
+        self._icon.setAlignment(Qt.AlignCenter)
 
+        # Title — uses SubHeading token (theme-aware)
         title = QLabel("Drop folder here")
+        title.setObjectName("SubHeading")
         title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet(
-            "font-size: 16px; font-weight: 600; color: #F5F5F7;"
-        )
+
+        # Subtitle
+        subtitle = QLabel("or click to browse your computer")
+        subtitle.setObjectName("Muted")
+        subtitle.setAlignment(Qt.AlignCenter)
+        subtitle.setWordWrap(True)
+
+        layout.addWidget(self._icon)
+        layout.addSpacing(4)
         layout.addWidget(title)
+        layout.addWidget(subtitle)
 
-        sub = QLabel("or click to browse your computer")
-        sub.setAlignment(Qt.AlignCenter)
-        sub.setStyleSheet("font-size: 13px; color: #6C6C70;")
-        layout.addWidget(sub)
-
-        self._icon = icon
-
-    # ── Drag events ────────────────────────────────────────────────
+    # ── Drag ──────────────────────────────────────────────────────
 
     def dragEnterEvent(self, event) -> None:
         if event.mimeData().hasUrls():
-            self._set_hover(True)
+            self._set_drag_active(True)
             event.acceptProposedAction()
 
     def dragMoveEvent(self, event) -> None:
@@ -62,10 +65,10 @@ class MagneticDropZone(QFrame):
             event.acceptProposedAction()
 
     def dragLeaveEvent(self, event) -> None:
-        self._set_hover(False)
+        self._set_drag_active(False)
 
     def dropEvent(self, event) -> None:
-        self._set_hover(False)
+        self._set_drag_active(False)
         paths = [u.toLocalFile() for u in event.mimeData().urls() if u.isLocalFile()]
         folders = [p for p in paths if Path(p).is_dir()]
         if folders:
@@ -80,7 +83,8 @@ class MagneticDropZone(QFrame):
         if folder:
             self.folder_selected.emit(folder)
 
-    def _set_hover(self, active: bool) -> None:
-        """Visual feedback during drag — update icon color."""
-        color = "#0A84FF" if active else "#6C6C70"
-        self._icon.setStyleSheet(f"font-size: 32px; color: {color};")
+    def _set_drag_active(self, active: bool) -> None:
+        """Toggle the drag-active property so QSS :hover rule fires."""
+        self.setProperty("dragActive", active)
+        self.style().unpolish(self)
+        self.style().polish(self)

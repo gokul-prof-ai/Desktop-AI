@@ -1,13 +1,14 @@
 """
-DesktopAI v2.0 — Settings View (Professional Configuration Center)
+DesktopAI v2.0 — Settings View
 File: src/gui/views/settings_view.py
 """
 from __future__ import annotations
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QFrame, QPushButton, QComboBox, QScrollArea,
-    QCheckBox, QSlider, QSizePolicy,
+    QCheckBox, QSizePolicy,
 )
 
 from infrastructure.config.settings import Settings
@@ -32,20 +33,20 @@ class SettingsView(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setStyleSheet("background: transparent;")
+        scroll.setStyleSheet("background: transparent; border: none;")
 
         inner = QWidget()
         inner.setStyleSheet("background: transparent;")
-        inner_layout = QVBoxLayout(inner)
-        inner_layout.setContentsMargins(0, 0, 8, 0)
-        inner_layout.setSpacing(12)
+        il = QVBoxLayout(inner)
+        il.setContentsMargins(0, 0, 8, 0)
+        il.setSpacing(12)
 
-        inner_layout.addWidget(self._section_ai())
-        inner_layout.addWidget(self._section_scanner())
-        inner_layout.addWidget(self._section_appearance())
-        inner_layout.addWidget(self._section_privacy())
-        inner_layout.addWidget(self._section_about())
-        inner_layout.addStretch()
+        il.addWidget(self._section_ai())
+        il.addWidget(self._section_scanner())
+        il.addWidget(self._section_appearance())
+        il.addWidget(self._section_privacy())
+        il.addWidget(self._section_about())
+        il.addStretch()
 
         scroll.setWidget(inner)
         layout.addWidget(scroll, 1)
@@ -53,150 +54,124 @@ class SettingsView(QWidget):
     # ── Sections ───────────────────────────────────────────────────
 
     def _section_ai(self) -> QFrame:
-        card = self._card("AI & Intelligence")
-        layout = self._card_body(card)
-
-        layout.addWidget(self._row("AI Provider", right=self._combo(["Ollama (Local)", "Mock AI"])))
-        layout.addWidget(self._sep())
-        layout.addWidget(self._row("Model", right=self._combo(
-            ["llama3.2", "llama3.2:1b", "mistral", "gemma2"],
-            current=Settings.ai.model,
-        )))
-        layout.addWidget(self._sep())
-        layout.addWidget(self._row("Fast Model", right=self._combo(
-            ["llama3.2:1b", "llama3.2"],
-            current=Settings.ai.model_fast,
-        )))
-        layout.addWidget(self._sep())
-        layout.addWidget(self._row("Ollama Host", value=Settings.ai.host))
-        layout.addWidget(self._sep())
-        layout.addWidget(self._row("Request Timeout", value=f"{Settings.ai.timeout}s"))
-        layout.addWidget(self._sep())
-        layout.addWidget(self._row("Max Retries", value=str(Settings.ai.max_retries)))
-
+        card, body = self._card("AI & Intelligence")
+        body.addWidget(self._row("AI Provider",  right=self._combo(["Ollama (Local)", "Mock AI"])))
+        body.addWidget(self._sep())
+        body.addWidget(self._row("Model",        right=self._combo(["llama3.2", "llama3.2:1b", "mistral", "gemma2"], Settings.ai.model)))
+        body.addWidget(self._sep())
+        body.addWidget(self._row("Fast Model",   right=self._combo(["llama3.2:1b", "llama3.2"], Settings.ai.model_fast)))
+        body.addWidget(self._sep())
+        body.addWidget(self._row("Ollama Host",  value=Settings.ai.host))
+        body.addWidget(self._sep())
+        body.addWidget(self._row("Timeout",      value=f"{Settings.ai.timeout}s"))
+        body.addWidget(self._sep())
+        body.addWidget(self._row("Max Retries",  value=str(Settings.ai.max_retries)))
         return card
 
     def _section_scanner(self) -> QFrame:
-        card = self._card("Scanning")
-        layout = self._card_body(card)
-
-        layout.addWidget(self._row("Max Scan Depth", value=str(Settings.scanner.max_depth)))
-        layout.addWidget(self._sep())
-        layout.addWidget(self._row("Parallel Workers", value=str(Settings.scanner.max_workers)))
-        layout.addWidget(self._sep())
-        layout.addWidget(self._row(
-            "Skip Hidden Files",
-            right=self._toggle(Settings.scanner.skip_hidden),
-        ))
-        layout.addWidget(self._sep())
-        layout.addWidget(self._row(
-            "Skip System Folders",
-            right=self._toggle(Settings.scanner.skip_system),
-        ))
-        layout.addWidget(self._sep())
-        layout.addWidget(self._row(
-            "OCR Enabled",
-            right=self._toggle(Settings.ocr.enabled),
-        ))
-        layout.addWidget(self._sep())
-        layout.addWidget(self._row("OCR Engine", value=Settings.ocr.engine))
-        layout.addWidget(self._sep())
-        layout.addWidget(self._row(
-            "Categories Loaded",
-            value=f"{len(Settings.categories)} rules",
-        ))
-
+        card, body = self._card("Scanning")
+        body.addWidget(self._row("Max Depth",       value=str(Settings.scanner.max_depth)))
+        body.addWidget(self._sep())
+        body.addWidget(self._row("Workers",          value=str(Settings.scanner.max_workers)))
+        body.addWidget(self._sep())
+        body.addWidget(self._row("Skip Hidden",      right=self._toggle(Settings.scanner.skip_hidden)))
+        body.addWidget(self._sep())
+        body.addWidget(self._row("Skip System",      right=self._toggle(Settings.scanner.skip_system)))
+        body.addWidget(self._sep())
+        body.addWidget(self._row("OCR Enabled",      right=self._toggle(Settings.ocr.enabled)))
+        body.addWidget(self._sep())
+        body.addWidget(self._row("OCR Engine",       value=Settings.ocr.engine))
+        body.addWidget(self._sep())
+        body.addWidget(self._row("Categories",       value=f"{len(Settings.categories)} rules"))
         return card
 
     def _section_appearance(self) -> QFrame:
-        card = self._card("Appearance")
-        layout = self._card_body(card)
-
-        layout.addWidget(self._row("Theme", right=self._combo(
+        card, body = self._card("Appearance")
+        body.addWidget(self._row("Theme", right=self._combo(
             ["Dark", "Light"],
-            current="Dark" if Settings.app.theme == "dark" else "Light",
+            "Dark" if Settings.app.theme == "dark" else "Light"
         )))
-        layout.addWidget(self._sep())
-        layout.addWidget(self._row("Embedding Model", value=Settings.search.embedding_model))
-        layout.addWidget(self._sep())
-        layout.addWidget(self._row("Max Search Results", value=str(Settings.search.max_results)))
-
+        body.addWidget(self._sep())
+        body.addWidget(self._row("Embedding Model",   value=Settings.search.embedding_model))
+        body.addWidget(self._sep())
+        body.addWidget(self._row("Max Search Results", value=str(Settings.search.max_results)))
         return card
 
     def _section_privacy(self) -> QFrame:
-        card = self._card("Privacy & Data")
-        layout = self._card_body(card)
-
-        layout.addWidget(self._row(
+        card, body = self._card("Privacy & Data")
+        body.addWidget(self._row(
             "Local Processing Only",
             right=self._toggle(True),
             note="All AI runs on your device. No data leaves your machine.",
         ))
-        layout.addWidget(self._sep())
-        layout.addWidget(self._row("Database", value=Settings.storage.db_filename))
-        layout.addWidget(self._sep())
-
+        body.addWidget(self._sep())
+        body.addWidget(self._row("Database", value=Settings.storage.db_filename))
+        body.addWidget(self._sep())
         clear_btn = QPushButton("Clear All Data")
         clear_btn.setObjectName("DangerButton")
         clear_btn.setFixedWidth(140)
-        layout.addWidget(self._row("Reset DesktopAI", right=clear_btn))
-
+        body.addWidget(self._row("Reset", right=clear_btn))
         return card
 
     def _section_about(self) -> QFrame:
-        card = self._card("About")
-        layout = self._card_body(card)
-
-        layout.addWidget(self._row("Application", value=APP_NAME))
-        layout.addWidget(self._sep())
-        layout.addWidget(self._row("Version", value=f"v{APP_VERSION}"))
-        layout.addWidget(self._sep())
-        layout.addWidget(self._row("Architecture", value="4-layer clean arch"))
-        layout.addWidget(self._sep())
-        layout.addWidget(self._row("AI Stack", value="Ollama · FAISS · PySide6"))
-        layout.addWidget(self._sep())
-        layout.addWidget(self._row("Python", value="3.14+"))
-
+        card, body = self._card("About")
+        body.addWidget(self._row("Application", value=APP_NAME))
+        body.addWidget(self._sep())
+        body.addWidget(self._row("Version",     value=f"v{APP_VERSION}"))
+        body.addWidget(self._sep())
+        body.addWidget(self._row("Architecture", value="4-layer clean arch"))
+        body.addWidget(self._sep())
+        body.addWidget(self._row("AI Stack",    value="Ollama · FAISS · PySide6"))
+        body.addWidget(self._sep())
+        body.addWidget(self._row("Python",      value="3.14+"))
         return card
 
     # ── Helpers ────────────────────────────────────────────────────
 
-    def _card(self, title: str) -> QFrame:
+    def _card(self, title: str) -> tuple[QFrame, QVBoxLayout]:
+        """Return (card_frame, body_layout)."""
         card = QFrame()
         card.setObjectName("Card")
-        # Title header inside card
-        header = QWidget()
-        header.setFixedHeight(44)
-        h_layout = QHBoxLayout(header)
-        h_layout.setContentsMargins(18, 0, 18, 0)
-        lbl = QLabel(title)
-        lbl.setObjectName("SubHeading")
-        h_layout.addWidget(lbl)
-        sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
-        sep.setFixedHeight(1)
-        sep.setStyleSheet("background: #3A3A3C; border: none;")
+
         outer = QVBoxLayout(card)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
-        outer.addWidget(header)
-        outer.addWidget(sep)
-        card._body_layout = outer
-        return card
 
-    def _card_body(self, card: QFrame) -> QVBoxLayout:
-        body = QWidget()
-        layout = QVBoxLayout(body)
-        layout.setContentsMargins(18, 4, 18, 12)
-        layout.setSpacing(0)
-        card._body_layout.addWidget(body)
-        return layout
+        # Section header bar
+        header = QWidget()
+        header.setFixedHeight(42)
+        h_layout = QHBoxLayout(header)
+        h_layout.setContentsMargins(18, 0, 18, 0)
+
+        lbl = QLabel(title)
+        lbl.setObjectName("SubHeading")
+        h_layout.addWidget(lbl)
+
+        outer.addWidget(header)
+
+        # Header separator
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        sep.setFixedHeight(1)
+        sep.setObjectName("HRule")
+        outer.addWidget(sep)
+
+        # Body
+        body_widget = QWidget()
+        body_widget.setStyleSheet("background: transparent;")
+        body_layout = QVBoxLayout(body_widget)
+        body_layout.setContentsMargins(18, 4, 18, 12)
+        body_layout.setSpacing(0)
+
+        outer.addWidget(body_widget)
+
+        return card, body_layout
 
     def _sep(self) -> QFrame:
         sep = QFrame()
         sep.setFrameShape(QFrame.HLine)
         sep.setFixedHeight(1)
-        sep.setStyleSheet("background: rgba(255,255,255,0.06); border: none;")
+        sep.setObjectName("HRule")
         return sep
 
     def _row(
@@ -208,16 +183,19 @@ class SettingsView(QWidget):
     ) -> QWidget:
         row = QWidget()
         row.setStyleSheet("background: transparent;")
-        row.setFixedHeight(44 if not note else 56)
+        row.setFixedHeight(52 if note else 44)
 
         layout = QHBoxLayout(row)
         layout.setContentsMargins(0, 0, 0, 0)
 
+        # Label column — use objectName so QSS handles color
         col = QVBoxLayout()
         col.setSpacing(1)
+
         lbl = QLabel(label)
-        lbl.setStyleSheet("color: #F5F5F7; font-size: 13px;")
+        lbl.setObjectName("SettingsLabel")
         col.addWidget(lbl)
+
         if note:
             note_lbl = QLabel(note)
             note_lbl.setObjectName("Caption")
@@ -230,7 +208,7 @@ class SettingsView(QWidget):
             layout.addWidget(right)
         elif value:
             val = QLabel(value)
-            val.setStyleSheet("color: #6C6C70; font-size: 13px;")
+            val.setObjectName("SettingsValue")
             layout.addWidget(val)
 
         return row
