@@ -138,6 +138,52 @@ class DatabaseManager:
         )
         connection.commit()
 
+    def save_files(self, file_infos: list[FileInfo]) -> None:
+        """
+        Save a list of FileInfo records in a single batch.
+
+        Args:
+            file_infos (list[FileInfo]):
+                The list of scanned file metadata to store.
+        """
+        connection = self._require_connection()
+        
+        now_str = datetime.now().strftime(DATE_FORMAT)
+        data = [
+            (
+                str(f.path),
+                f.name,
+                f.extension,
+                f.size,
+                f.created.strftime(DATE_FORMAT),
+                f.modified.strftime(DATE_FORMAT),
+                f.file_hash,
+                f.detected_type,
+                now_str,
+            )
+            for f in file_infos
+        ]
+
+        connection.executemany(
+            """
+            INSERT INTO files
+                (path, name, extension, size, created, modified,
+                 file_hash, detected_type, scanned_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(path) DO UPDATE SET
+                name = excluded.name,
+                extension = excluded.extension,
+                size = excluded.size,
+                created = excluded.created,
+                modified = excluded.modified,
+                file_hash = excluded.file_hash,
+                detected_type = excluded.detected_type,
+                scanned_at = excluded.scanned_at
+            """,
+            data,
+        )
+        connection.commit()
+
     def load_files(self) -> list[FileInfo]:
         """
         Load every stored file record.
