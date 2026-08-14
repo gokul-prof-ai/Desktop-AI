@@ -28,7 +28,6 @@ from __future__ import annotations
 
 from PySide6.QtCore import QObject, Signal
 
-
 class _AppEventBus(QObject):
     """
     Singleton Qt signal bus for application-wide events.
@@ -78,6 +77,9 @@ class _AppEventBus(QObject):
     # Emitted when apply fails partway. Carries error message.
     apply_failed: Signal = Signal(str)
 
+    # Emitted when an undo batch finishes. Carries count of reversed operations.
+    undo_completed: Signal = Signal(int)
+
     # ── Search events ──────────────────────────────────────────────────
     # Emitted when the FAISS index rebuild starts.
     index_build_started: Signal = Signal()
@@ -116,7 +118,6 @@ class _AppEventBus(QObject):
     # ── Application lifecycle ──────────────────────────────────────────
     # Emitted just before the application shuts down.
     app_shutting_down: Signal = Signal()
-
 
 # ── Singleton instance ─────────────────────────────────────────────────────
 # Import and use this everywhere. Never instantiate _AppEventBus yourself.

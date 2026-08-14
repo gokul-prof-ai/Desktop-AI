@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import traceback
 from pathlib import Path
 
 
@@ -141,8 +142,20 @@ def main():
             exit_code = _launch_cli(args)
         else:
             exit_code = _launch_gui(args)
+    except Exception:
+        # Force output to stdout to bypass PowerShell stderr swallowing
+        sys.stdout.write("\n" + "="*60 + "\n")
+        sys.stdout.write("FATAL GUI CRASH DETECTED\n")
+        sys.stdout.write("="*60 + "\n")
+        traceback.print_exc(file=sys.stdout)
+        sys.stdout.write("="*60 + "\n\n")
+        sys.stdout.flush()
+        exit_code = 1
     finally:
-        DB.close()
+        try:
+            DB.close()
+        except Exception:
+            pass
 
     sys.exit(exit_code)
 

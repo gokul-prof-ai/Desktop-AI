@@ -29,10 +29,8 @@ _EXT_ICONS = {
     ".mp4": "🎬", ".mp3": "🎵", ".zip": "📦", ".rar": "📦",
 }
 
-
 def _file_icon(ext: str) -> str:
     return _EXT_ICONS.get(ext.lower(), "📄")
-
 
 def _conf_tag(confidence: float) -> tuple[str, str]:
     """Return (object_name, text) for a confidence badge."""
@@ -42,7 +40,6 @@ def _conf_tag(confidence: float) -> tuple[str, str]:
     elif pct >= 50:
         return "TagWarning", f"{pct}%"
     return "TagDanger", f"{pct}%"
-
 
 class HomeView(QWidget):
     scan_ready = Signal(str, list)
@@ -67,6 +64,10 @@ class HomeView(QWidget):
         self.vm.scan_progress.connect(self._on_progress)
         self.vm.scan_completed.connect(self._on_completed)
         self.vm.scan_failed.connect(self._on_failed)
+
+        from core.events import AppEvents
+        AppEvents.apply_completed.connect(self._refresh_stats)
+        AppEvents.undo_completed.connect(self._refresh_stats)
 
     # ── Empty page ─────────────────────────────────────────────────
 
@@ -361,6 +362,17 @@ class HomeView(QWidget):
         self.progress_card.setVisible(False)
         self.scan_status.setText(f"Scan failed — {error}")
         logger.error("Scan failed: %s", error)
+
+    def _refresh_stats(self) -> None:
+        """Update dashboard stats when an organization batch completes or is undone."""
+        try:
+            stats = self._service.get_memory_stats()
+            self.stat_files.value_label.setText(str(stats["total_files"]))
+            self.stat_ops.value_label.setText(str(stats["total_operations"]))
+            if hasattr(self, "res_ops_stat"):
+                self.res_ops_stat.value_label.setText(str(stats["total_operations"]))
+        except Exception as exc:
+            logger.warning("Failed to refresh home stats: %s", exc)
 
     def _populate_table(self, results: list[dict]) -> None:
         self.table.setRowCount(len(results))

@@ -1,5 +1,5 @@
 """
-DesktopAI v2.0 — Organize View (Review Workspace)
+DesktopAI v2.0 — Organize View
 File: src/gui/views/organize_view.py
 """
 from __future__ import annotations
@@ -18,7 +18,6 @@ from core.logger import get_logger
 from services import FileService
 
 logger = get_logger(__name__)
-
 
 class OrganizeView(QWidget):
 
@@ -168,7 +167,7 @@ class OrganizeView(QWidget):
 
     def _build_plan(self) -> None:
         if not self.scan_path or not self.scan_results:
-            self.banner_title.setText("No files to organize")
+            self.banner_title.setText("No files to organizeize")
             self.banner_sub.setText("The scan returned no results.")
             self._set_enabled(False)
             return
@@ -270,7 +269,12 @@ class OrganizeView(QWidget):
             )
             self.apply_btn.setEnabled(False)
             self.undo_btn.setEnabled(True)
+            
+            from core.events import AppEvents
+            AppEvents.apply_completed.emit(stats["success"])
         except Exception as exc:
+            from core.events import AppEvents
+            AppEvents.apply_failed.emit(str(exc))
             QMessageBox.critical(self, "Failed", str(exc))
 
     def _undo(self) -> None:
@@ -281,13 +285,20 @@ class OrganizeView(QWidget):
             result = self._service.undo_last(self._batch_id)
             if result["error"]:
                 QMessageBox.critical(self, "Undo Failed", result["error"])
+                from core.events import AppEvents
+                AppEvents.apply_failed.emit(result["error"])
             else:
                 self.banner_title.setText("Undo complete")
                 self.banner_sub.setText(f"{result['reversed']} operation(s) reversed.")
                 self._batch_id = None
                 self._set_enabled(True)
+                
+                from core.events import AppEvents
+                AppEvents.undo_completed.emit(result["reversed"])
         except Exception as exc:
             QMessageBox.critical(self, "Undo Failed", str(exc))
+            from core.events import AppEvents
+            AppEvents.apply_failed.emit(str(exc))
 
     def _export(self) -> None:
         if not self.plan:

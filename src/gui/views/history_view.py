@@ -21,13 +21,17 @@ _STATUS_ICONS = {
     "undone":    ("↶", "#FFD60A"),
 }
 
-
 class HistoryView(QWidget):
 
     def __init__(self) -> None:
         super().__init__()
         self._build_ui()
         self.refresh()
+
+        from core.events import AppEvents
+        AppEvents.apply_completed.connect(self.refresh)
+        AppEvents.undo_completed.connect(self.refresh)
+        AppEvents.apply_failed.connect(self.refresh)
 
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
