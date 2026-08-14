@@ -17,7 +17,8 @@ def test_generate_response_returns_none_on_connection_error(monkeypatch):
     def fake_post(url, json, timeout):
         raise requests.exceptions.ConnectionError("Connection refused")
 
-    monkeypatch.setattr(requests, "post", fake_post)
+    from ai.ollama_client import client
+    monkeypatch.setattr(client.session, "post", fake_post)
 
     result = generate_response("Hello, are you there?")
 
@@ -39,7 +40,8 @@ def test_generate_response_returns_text_on_success(monkeypatch):
     def fake_post(url, json, timeout):
         return FakeResponse()
 
-    monkeypatch.setattr(requests, "post", fake_post)
+    from ai.ollama_client import client
+    monkeypatch.setattr(client.session, "post", fake_post)
 
     result = generate_response("Hello")
 
@@ -61,7 +63,8 @@ def test_generate_response_returns_none_on_missing_response_field(monkeypatch):
     def fake_post(url, json, timeout):
         return FakeResponse()
 
-    monkeypatch.setattr(requests, "post", fake_post)
+    from ai.ollama_client import client
+    monkeypatch.setattr(client.session, "post", fake_post)
 
     result = generate_response("Hello")
 

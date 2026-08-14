@@ -14,11 +14,15 @@ logger = get_logger("documents")
 # Suppress ugly C-level MuPDF console errors for corrupted/empty PDFs
 fitz.TOOLS.mupdf_display_errors(False)
 
-def read_pdf_text(file_path: Path) -> str:
+def read_pdf_text(file_path: Path) -> str | None:
     """
     Extract text from a PDF file.
-    Returns an empty string if the file is corrupted or unreadable.
+    Returns None if the file is missing, corrupted or unreadable.
     """
+    if not file_path.exists():
+        logger.debug(f"Skipped unreadable PDF: {file_path.name}")
+        return None
+
     try:
         with fitz.open(file_path) as doc:
             text = ""
@@ -28,4 +32,4 @@ def read_pdf_text(file_path: Path) -> str:
     except Exception as e:
         # We log this quietly so it doesn't clutter the terminal
         logger.debug(f"Skipped unreadable PDF: {file_path.name}")
-        return ""
+        return None

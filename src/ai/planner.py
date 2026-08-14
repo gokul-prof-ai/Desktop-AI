@@ -172,11 +172,18 @@ class AIPlan:
         return actions
 
     def _step_save(self, files: list[FileInfo]) -> None:
-        db = DatabaseManager(config.DATABASE_PATH)
-        db.connect()
+        from infrastructure.storage.database import DB
+        DB.connect()
         for file_info in files:
-            db.save_file(file_info)
-        db.close()
+            DB.upsert_file(
+                path=str(file_info.path),
+                filename=file_info.name,
+                extension=file_info.extension,
+                size_bytes=file_info.size,
+                modified_at=file_info.modified.isoformat() if file_info.modified else None,
+                md5_hash=file_info.file_hash,
+                category=getattr(file_info, "_category", None),
+            )
 
     def _step_explain(self, plan: Plan) -> str:
         step_lines = "\n".join(
