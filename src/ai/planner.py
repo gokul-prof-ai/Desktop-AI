@@ -174,8 +174,7 @@ class AIPlan:
     def _step_save(self, files: list[FileInfo]) -> None:
         db = DatabaseManager(config.DATABASE_PATH)
         db.connect()
-        for file_info in files:
-            db.save_file(file_info)
+        db.save_files(files)
         db.close()
 
     def _step_explain(self, plan: Plan) -> str:

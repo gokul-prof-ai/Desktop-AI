@@ -89,9 +89,36 @@ class DatabaseManager:
             file_info (FileInfo):
                 The scanned file metadata to store.
         """
+        # Optimized: delegates to save_files to reuse batching logic and keep code DRY
+        self.save_files([file_info])
+
+    def save_files(self, file_infos: list[FileInfo]) -> None:
+        """
+        Save a list of FileInfo records in a single batch.
+
+        Args:
+            file_infos (list[FileInfo]):
+                The list of scanned file metadata to store.
+        """
         connection = self._require_connection()
 
-        connection.execute(
+        now_str = datetime.now().strftime(DATE_FORMAT)
+        data = [
+            (
+                str(f.path),
+                f.name,
+                f.extension,
+                f.size,
+                f.created.strftime(DATE_FORMAT),
+                f.modified.strftime(DATE_FORMAT),
+                f.file_hash,
+                f.detected_type,
+                now_str,
+            )
+            for f in file_infos
+        ]
+
+        connection.executemany(
             """
             INSERT INTO files
                 (path, name, extension, size, created, modified,
@@ -107,17 +134,7 @@ class DatabaseManager:
                 detected_type = excluded.detected_type,
                 scanned_at = excluded.scanned_at
             """,
-            (
-                str(file_info.path),
-                file_info.name,
-                file_info.extension,
-                file_info.size,
-                file_info.created.strftime(DATE_FORMAT),
-                file_info.modified.strftime(DATE_FORMAT),
-                file_info.file_hash,
-                file_info.detected_type,
-                datetime.now().strftime(DATE_FORMAT),
-            ),
+            data,
         )
         connection.commit()
 
