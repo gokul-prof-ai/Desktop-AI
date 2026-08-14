@@ -113,9 +113,14 @@ def is_mock_mode() -> bool:
 # ============================================================
 
 BASE_DIR: Path = Path(__file__).resolve().parent
+PROJECT_ROOT: Path = BASE_DIR.parent.parent
 
 DATA_DIR: Path = Path(
-    _get_env("DESKTOP_AI_DATA_DIR", str(BASE_DIR / "data"))
+    _get_env("DESKTOP_AI_DATA_DIR", str(PROJECT_ROOT / "data"))
+)
+
+SCAN_FOLDER: Path = Path(
+    _get_env("DESKTOPAI_SCAN_FOLDER", str(PROJECT_ROOT / "data"))
 )
 
 CACHE_DIR: Path = Path(
@@ -153,6 +158,7 @@ SEARCH_INDEX_PATH: Path = Path(
 MEMORY_DB_PATH: Path = Path(
     _get_env("DESKTOP_AI_MEMORY_DB_PATH", str(DATA_DIR / "memory.db"))
 )
+MEMORY_PATH: Path = MEMORY_DB_PATH
 
 # V1 alias — some legacy modules reference DB_PATH.
 DB_PATH: Path = DATABASE_PATH
@@ -247,6 +253,8 @@ MAX_FILE_SIZE_MB: int = _get_int("MAX_FILE_SIZE_MB", 100)
 MAX_FILE_SIZE_BYTES: int = MAX_FILE_SIZE_MB * 1024 * 1024
 MAX_FILES_PER_SCAN: int = _get_int("MAX_FILES_PER_SCAN", 10000)
 MAX_FOLDER_DEPTH: int = _get_int("MAX_FOLDER_DEPTH", 20)
+SCAN_MAX_DEPTH: int = MAX_FOLDER_DEPTH
+HASH_CHUNK_SIZE: int = _get_int("HASH_CHUNK_SIZE", 65536)
 
 
 # ============================================================

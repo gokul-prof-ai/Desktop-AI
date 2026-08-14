@@ -12,12 +12,13 @@ def test_get_logger_creates_log_file(tmp_path, monkeypatch):
     # touches the project's real logs/ directory.
     import core.logger as logger_module
 
+    logger_module._is_configured = False
     monkeypatch.setattr(logger_module, "LOGS_DIR", tmp_path)
 
     logger = logger_module.get_logger("test_module")
     logger.info("hello from test")
 
-    log_file = tmp_path / "test_module.log"
+    log_file = tmp_path / "desktop_ai.log"
     assert log_file.exists()
     assert "hello from test" in log_file.read_text(encoding="utf-8")
 

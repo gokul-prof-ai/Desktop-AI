@@ -73,15 +73,21 @@ def configure(debug: bool = False) -> None:
     # ── Main rotating file handler ─────────────────────────────────────
     # Writes all log levels. Rotates at 5 MB. Keeps 3 backups.
     main_log_path = LOGS_DIR / "desktop_ai.log"
-    file_handler = RotatingFileHandler(
-        filename=main_log_path,
-        maxBytes=LOG_MAX_BYTES,
-        backupCount=LOG_BACKUP_COUNT,
-        encoding="utf-8",
-    )
-    file_handler.setLevel(logging.DEBUG)
-    file_handler.setFormatter(formatter)
-    root.addHandler(file_handler)
+    try:
+        file_handler = RotatingFileHandler(
+            filename=main_log_path,
+            maxBytes=LOG_MAX_BYTES,
+            backupCount=LOG_BACKUP_COUNT,
+            encoding="utf-8",
+        )
+    except Exception:
+        # Fallback if LOGS_DIR file path cannot be opened
+        file_handler = None
+
+    if file_handler is not None:
+        file_handler.setLevel(logging.DEBUG)
+        file_handler.setFormatter(formatter)
+        root.addHandler(file_handler)
 
     # ── Console handler ────────────────────────────────────────────────
     # Normal mode : WARNING and above (keeps terminal clean)
