@@ -1,9 +1,7 @@
 """
 DesktopAI v2.0 — Application Shell
 File: src/gui/windows/main_window.py
-
-Navigation shell only. Uses the premium theme engine and exposes
-a ToastManager for non-blocking feedback across all views.
+Navigation shell only. Premium theme, icon system, brand, palette.
 """
 from __future__ import annotations
 
@@ -15,31 +13,45 @@ from PySide6.QtWidgets import (
 )
 
 from core.constants import APP_NAME, WINDOW_DEFAULT_HEIGHT, WINDOW_DEFAULT_WIDTH
+from core.logger import get_logger
+from domain.organizer.organizer import Organizer
+from infrastructure.config.settings import Settings
+from services import ApplicationServices
+
+from gui.components import icons as I
 from gui.components.animated_stack import AnimatedStackedWidget
+from gui.components.brand import LogoMark, app_icon, ensure_brand_assets
+from gui.components.command_palette import CommandPalette
 from gui.components.toast import ToastManager
+from gui.components.widgets import StatusIndicator
 from gui.theme.premium_theme import apply_premium_theme
+from gui.theme.typography import apply_typography
+from gui.theme.design_tokens import tokens_for
+
 from gui.views.home_view import HomeView
 from gui.views.organize_view import OrganizeView
 from gui.views.search_view import SearchView
 from gui.views.chat_view import ChatView
 from gui.views.history_view import HistoryView
 from gui.views.settings_view import SettingsView
-from infrastructure.config.settings import Settings
-from core.logger import get_logger
-from services import ApplicationServices
-from domain.organizer.organizer import Organizer
+
+try:
+    from gui.utils.sounds import SOUNDS
+except Exception:  # sounds optional
+    SOUNDS = None
 
 logger = get_logger(__name__)
 
 _MENU = [
-    ("⌂", "Home", "Your library at a glance — drop a folder to begin."),
-    ("▦", "Organize", "Review how DesktopAI proposes to organize your library."),
-    ("⌕", "Search", "Find files by name, type, content, or meaning."),
-    ("✦", "Chat", "Ask DesktopAI about your files, folders, or organization."),
-    ("≡", "History", "Everything DesktopAI has done, with undo."),
+    ("home", "Home", "Your library at a glance — drop a folder to begin."),
+    ("organize", "Organize", "Review how DesktopAI proposes to organize your library."),
+    ("search", "Search", "Find files by name, type, content, or meaning."),
+    ("chat", "Chat", "Ask DesktopAI about your files, folders, or organization."),
+    ("history", "History", "Everything DesktopAI has done, with undo."),
 ]
 _SYSTEM = [
-    ("⚙", "Settings", "Appearance, AI engine, scanning and privacy."),
+    ("watcher", "Watcher", "Automatic monitoring of your folders."),
+    ("settings", "Settings", "Appearance, AI engine, scanning and privacy."),
 ]
 
 
@@ -59,10 +71,14 @@ class MainWindow(QMainWindow):
         db_manager = getattr(self.services, "db_manager", None)
         self._organizer = Organizer(db_manager=db_manager)
 
+        apply_typography(self.application())
+        ensure_brand_assets()
+        self.setWindowIcon(app_icon())
+
         self._build_ui()
         self.toasts = ToastManager(self)
-
         apply_premium_theme(self.application(), self.current_theme)
+        self._refresh_nav_icons()
         self._update_theme_button()
 
         self._connect_events()
@@ -76,7 +92,7 @@ class MainWindow(QMainWindow):
             logger.exception("Failed to close application services cleanly.")
         super().closeEvent(event)
 
-    # ── Build UI ────────────────────────────────────────────────
+    # ── Build ─────────────────────────────────────────────────────
     def _build_ui(self) -> None:
         root = QWidget()
         root.setObjectName("Root")
@@ -90,26 +106,22 @@ class MainWindow(QMainWindow):
     def _build_sidebar(self) -> QFrame:
         sidebar = QFrame()
         sidebar.setObjectName("Sidebar")
-        sidebar.setFixedWidth(220)
+        sidebar.setFixedWidth(224)
         layout = QVBoxLayout(sidebar)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
         brand = QWidget()
-        brand.setFixedHeight(64)
+        brand.setFixedHeight(72)
         b_lay = QHBoxLayout(brand)
         b_lay.setContentsMargins(16, 0, 16, 0)
         b_lay.setSpacing(10)
-        logo = QLabel("D")
-        logo.setAlignment(Qt.AlignCenter)
-        logo.setFixedSize(30, 30)
-        logo.setStyleSheet("background:#7C3AED; color:white; font-size:14px; font-weight:700; border-radius:7px;")
-        b_lay.addWidget(logo)
+        b_lay.addWidget(LogoMark(32))
         col = QVBoxLayout()
         col.setSpacing(1)
         name = QLabel(APP_NAME)
         name.setObjectName("BrandName")
-        sub = QLabel("AI File Organizer")
+        sub = QLabel("Your files. Understood.")
         sub.setObjectName("BrandSub")
         col.addWidget(name)
         col.addWidget(sub)
@@ -117,14 +129,7 @@ class MainWindow(QMainWindow):
         b_lay.addStretch()
         layout.addWidget(brand)
 
-        div = QFrame()
-        div.setFrameShape(QFrame.HLine)
-        div.setFixedHeight(1)
-        div.setStyleSheet("background: transparent; border: none;")
-        layout.addWidget(div)
-        layout.addSpacing(8)
-
-        menu_group = QLabel("MENU")
+        menu_group = QLabel("WORKSPACE")
         menu_group.setObjectName("NavGroup")
         menu_group.setContentsMargins(18, 4, 0, 4)
         layout.addWidget(menu_group)
@@ -135,8 +140,9 @@ class MainWindow(QMainWindow):
         self.nav.setSpacing(1)
         self.sections = [label for _, label, _ in _MENU]
         for icon, label, _ in _MENU:
-            item = QListWidgetItem(f" {icon}  {label}")
-            item.setSizeHint(QSize(220, 36))
+            item = QListWidgetItem(f"  {label}")
+            item.setSizeHint(QSize(224, 38))
+            item.setData(Qt.UserRole, icon)
             self.nav.addItem(item)
         layout.addWidget(self.nav, 1)
 
@@ -148,16 +154,17 @@ class MainWindow(QMainWindow):
         self.sys_nav = QListWidget()
         self.sys_nav.setObjectName("NavList")
         self.sys_nav.setFocusPolicy(Qt.NoFocus)
-        self.sys_nav.setFixedHeight(44)
+        self.sys_nav.setFixedHeight(84)
         self.sys_nav.setSpacing(1)
         for icon, label, _ in _SYSTEM:
-            item = QListWidgetItem(f" {icon}  {label}")
-            item.setSizeHint(QSize(220, 36))
+            item = QListWidgetItem(f"  {label}")
+            item.setSizeHint(QSize(224, 38))
+            item.setData(Qt.UserRole, icon)
             self.sys_nav.addItem(item)
         layout.addWidget(self.sys_nav)
         layout.addSpacing(8)
 
-        ver = QLabel("v2.0.0")
+        ver = QLabel("DesktopAI V2\nLocal • Private")
         ver.setObjectName("Caption")
         ver.setAlignment(Qt.AlignCenter)
         ver.setContentsMargins(0, 0, 0, 12)
@@ -170,9 +177,7 @@ class MainWindow(QMainWindow):
         layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-
-        self.header_bar = self._build_header_bar()
-        layout.addWidget(self.header_bar)
+        layout.addWidget(self._build_header_bar())
 
         wrapper = QWidget()
         wrapper.setObjectName("Content")
@@ -186,22 +191,37 @@ class MainWindow(QMainWindow):
         self.search_view = SearchView(self._service)
         self.chat_view = ChatView()
         self.history_view = HistoryView()
+        self.watcher_view = self._make_watcher_view()
         self.settings_view = SettingsView()
-        for view in [
+
+        self._pages = [
             self.home_view, self.organize_view, self.search_view,
-            self.chat_view, self.history_view, self.settings_view,
-        ]:
+            self.chat_view, self.history_view, self.watcher_view,
+            self.settings_view,
+        ]
+        for view in self._pages:
             self.stack.addWidget(view)
         w_layout.addWidget(self.stack)
         layout.addWidget(wrapper, 1)
-
         self.nav.setCurrentRow(0)
         return content
+
+    def _make_watcher_view(self) -> QWidget:
+        try:
+            from gui.views.watcher_view import WatcherView
+            try:
+                return WatcherView(self.services.watcher_service)
+            except TypeError:
+                return WatcherView()
+        except Exception as exc:
+            logger.warning("WatcherView unavailable: %s", exc)
+            from gui.components.widgets import EmptyState
+            return EmptyState("Watcher unavailable", "This build could not load the watcher module.")
 
     def _build_header_bar(self) -> QWidget:
         bar = QWidget()
         bar.setObjectName("TopHeader")
-        bar.setFixedHeight(56)
+        bar.setFixedHeight(60)
         layout = QHBoxLayout(bar)
         layout.setContentsMargins(28, 0, 20, 0)
 
@@ -216,12 +236,32 @@ class MainWindow(QMainWindow):
         layout.addLayout(col)
         layout.addStretch()
 
+        self.status = StatusIndicator("Local • Private", "ok")
+        layout.addWidget(self.status)
+
         self.theme_button = QPushButton()
         self.theme_button.setObjectName("ThemeButton")
+        self.theme_button.setFixedSize(36, 36)
         layout.addWidget(self.theme_button)
         return bar
 
-    # ── Events ──────────────────────────────────────────────────
+    # ── Nav icons ─────────────────────────────────────────────────
+    def _refresh_nav_icons(self) -> None:
+        t = tokens_for(self.current_theme)
+        active = QColor(t["nav_active_text"])
+        idle = QColor(t["text_2"])
+
+        def paint(list_widget: QListWidget, offset: int):
+            for row in range(list_widget.count()):
+                item = list_widget.item(row)
+                icon_name = item.data(Qt.UserRole)
+                is_active = (list_widget.currentRow() == row)
+                item.setIcon(I.qicon(icon_name, 18, active if is_active else idle))
+
+        paint(self.nav, 0)
+        paint(self.sys_nav, len(_MENU))
+
+    # ── Events ────────────────────────────────────────────────────
     def _connect_events(self) -> None:
         self.nav.currentRowChanged.connect(self._on_menu_changed)
         self.sys_nav.currentRowChanged.connect(self._on_system_changed)
@@ -233,32 +273,30 @@ class MainWindow(QMainWindow):
     def _on_menu_changed(self, index: int) -> None:
         if not (0 <= index < len(self.sections)):
             return
-        if self.sys_nav.currentRow() != -1:
-            self.sys_nav.blockSignals(True)
-            self.sys_nav.clearSelection()
-            self.sys_nav.setCurrentRow(-1)
-            self.sys_nav.blockSignals(False)
+        self._clear_other(self.nav)
         self._show_page(index)
+        self._refresh_nav_icons()
 
     def _on_system_changed(self, index: int) -> None:
         if not (0 <= index < len(_SYSTEM)):
             return
-        if self.nav.currentRow() != -1:
-            self.nav.blockSignals(True)
-            self.nav.clearSelection()
-            self.nav.setCurrentRow(-1)
-            self.nav.blockSignals(False)
+        self._clear_other(self.sys_nav)
         self._show_page(len(_MENU) + index)
+        self._refresh_nav_icons()
+
+    def _clear_other(self, active_list: QListWidget) -> None:
+        other = self.sys_nav if active_list is self.nav else self.nav
+        if other.currentRow() != -1:
+            other.blockSignals(True)
+            other.clearSelection()
+            other.setCurrentRow(-1)
+            other.blockSignals(False)
 
     def _show_page(self, index: int) -> None:
         self.stack.setCurrentIndex(index)
-        if index < len(_MENU):
-            self.page_title.setText(_MENU[index][1])
-            self.page_context.setText(_MENU[index][2])
-        else:
-            s = index - len(_MENU)
-            self.page_title.setText(_SYSTEM[s][1])
-            self.page_context.setText(_SYSTEM[s][2])
+        all_pages = _MENU + _SYSTEM
+        self.page_title.setText(all_pages[index][1])
+        self.page_context.setText(all_pages[index][2])
 
     def _on_scan_ready(self, scan_path: str, results: list) -> None:
         self._broadcast_scan_context(scan_path, results)
@@ -274,24 +312,27 @@ class MainWindow(QMainWindow):
                 try:
                     fn(scan_path, results)
                 except Exception as exc:
-                    logger.warning("%s.set_scan_context() raised %s: %s",
-                                   name, type(exc).__name__, exc)
+                    logger.warning("%s.set_scan_context() raised %s: %s", name, type(exc).__name__, exc)
         try:
             self.history_view.refresh()
         except Exception as exc:
             logger.debug("HistoryView.refresh() raised %s: %s", type(exc).__name__, exc)
         count = len(results or [])
         self.toasts.show_success("Scan complete", f"{count} files analyzed.")
+        if SOUNDS:
+            SOUNDS.play_success()
         logger.info("Scan context broadcast complete (path=%s, %d results).", scan_path, count)
 
-    # ── Shortcuts ───────────────────────────────────────────────
+    # ── Shortcuts & palette ───────────────────────────────────────
     def _setup_shortcuts(self) -> None:
-        for key, idx in [
-            ("Ctrl+1", 0), ("Ctrl+2", 1), ("Ctrl+3", 2),
-            ("Ctrl+4", 3), ("Ctrl+5", 4), ("Ctrl+6", 5),
-        ]:
+        for key, idx in [("Ctrl+1", 0), ("Ctrl+2", 1), ("Ctrl+3", 2),
+                         ("Ctrl+4", 3), ("Ctrl+5", 4), ("Ctrl+6", 5), ("Ctrl+7", 6)]:
             sc = QShortcut(QKeySequence(key), self)
             sc.activated.connect(lambda i=idx: self._jump_to(i))
+
+        QShortcut(QKeySequence("Ctrl+K"), self).activated.connect(self._open_palette)
+        QShortcut(QKeySequence("Ctrl+O"), self).activated.connect(self.home_view._browse_folder)
+        QShortcut(QKeySequence("Ctrl+,"), self).activated.connect(lambda: self._jump_to(6))
 
     def _jump_to(self, index: int) -> None:
         if index < len(_MENU):
@@ -299,7 +340,36 @@ class MainWindow(QMainWindow):
         else:
             self.sys_nav.setCurrentRow(index - len(_MENU))
 
-    # ── Theme ───────────────────────────────────────────────────
+    def _open_palette(self) -> None:
+        actions = [
+            ("scan", "Scan Folder", "Ctrl+O"),
+            ("search", "Search Files", "Ctrl+3"),
+            ("organize", "Organize Files", "Ctrl+2"),
+            ("index", "Build Search Index", ""),
+            ("theme", "Toggle Theme", ""),
+            ("history", "View History", "Ctrl+5"),
+            ("settings", "Open Settings", "Ctrl+,"),
+        ]
+        palette = CommandPalette(actions, self.current_theme, self)
+        chosen = palette.exec()
+        if not chosen:
+            return
+        if chosen == "scan":
+            self.home_view._browse_folder()
+        elif chosen == "search":
+            self._jump_to(2)
+        elif chosen == "organize":
+            self._jump_to(1)
+        elif chosen == "index":
+            self.home_view._build_index()
+        elif chosen == "theme":
+            self._toggle_theme()
+        elif chosen == "history":
+            self._jump_to(4)
+        elif chosen == "settings":
+            self._jump_to(6)
+
+    # ── Theme ─────────────────────────────────────────────────────
     def _toggle_theme(self) -> None:
         self.current_theme = "light" if self.current_theme == "dark" else "dark"
         apply_premium_theme(self.application(), self.current_theme)
@@ -309,19 +379,22 @@ class MainWindow(QMainWindow):
         except Exception:
             logger.exception("Failed to persist theme setting.")
         self._update_theme_button()
-        # Let self-themed views (e.g. Home) re-skin instantly.
-        for view in [self.home_view]:
-            fn = getattr(view, "_apply_theme", None)
-            if callable(fn):
-                fn()
+        self._refresh_nav_icons()
+        fn = getattr(self.home_view, "_apply_theme", None)
+        if callable(fn):
+            fn()
 
     def _update_theme_button(self) -> None:
-        self.theme_button.setText("☀" if self.current_theme == "dark" else "☾")
+        t = tokens_for(self.current_theme)
+        name = "sun" if self.current_theme == "dark" else "moon"
+        self.theme_button.setIcon(I.qicon(name, 18, QColor(t["text_2"])))
         self.theme_button.setToolTip(
-            "Switch to light mode" if self.current_theme == "dark"
-            else "Switch to dark mode"
+            "Switch to light mode" if self.current_theme == "dark" else "Switch to dark mode"
         )
 
     def application(self):
         from PySide6.QtWidgets import QApplication
         return QApplication.instance()
+
+
+from PySide6.QtGui import QColor  # noqa: E402
