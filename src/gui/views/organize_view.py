@@ -1,337 +1,277 @@
 """
-DesktopAI v2.0 — Application Shell
-File: src/gui/windows/main_window.py
+DesktopAI v2.0 — Organize View
+File: src/gui/views/organize_view.py
+
+Displays the organization plan built from scan results.
+Lets the user review, apply, and undo file moves.
 """
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, QSize
-from PySide6.QtGui import QKeySequence, QShortcut
+from pathlib import Path
+
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QListWidget, QListWidgetItem, QLabel, QFrame,
-    QPushButton,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
+    QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
+    QMessageBox, QFileDialog, QProgressBar,
 )
 
-from core.constants import APP_NAME, WINDOW_DEFAULT_HEIGHT, WINDOW_DEFAULT_WIDTH
-from gui.theme.app_shell import apply_theme
-from gui.views.home_view import HomeView
-from gui.views.organize_view import OrganizeView
-from gui.views.search_view import SearchView
-from gui.views.chat_view import ChatView
-from gui.views.history_view import HistoryView
-from gui.views.settings_view import SettingsView
-from gui.components.animated_stack import AnimatedStackedWidget
-from infrastructure.config.settings import Settings
 from core.logger import get_logger
-from services import ApplicationServices
-from domain.organizer.organizer import Organizer
+from services import FileService
 
 logger = get_logger(__name__)
 
-# Nav: (icon, label, subtitle)
-_NAV = [
-    ("⌂", "Home",     "Scan and understand your files."),
-    ("⊞", "Organize", "Review and safely apply organization plans."),
-    ("⊕", "Search",   "Find files using natural language."),
-    ("◎", "Chat",     "Ask DesktopAI about your files."),
-    ("≡", "History",  "Browse your organization activity."),
-    ("⚙", "Settings", "Configure AI, scanner, and preferences."),
-]
 
+class OrganizeView(QWidget):
+    """
+    Organize screen — review plan and apply / undo file moves.
 
-class MainWindow(QMainWindow):
+    Receives scan results via set_scan_context() from MainWindow.
+    Emits history_changed() after a successful apply or undo so the
+    HistoryView can refresh.
+    """
 
-    def __init__(self, services: ApplicationServices) -> None:
-        super().__init__()
-        self.services = services
-        self.current_theme = (
-            Settings.app.theme if Settings.app.theme in {"light", "dark"} else "dark"
-        )
-        self.setWindowTitle(APP_NAME)
-        self.resize(WINDOW_DEFAULT_WIDTH, WINDOW_DEFAULT_HEIGHT)
-        self.setMinimumSize(1100, 680)
+    history_changed = Signal()
 
-        # Services are created by the application composition root and injected
-        # into the shell. The shell only consumes them and owns their shutdown.
-        self._service = self.services.file_service
-        self._service.open()
+    # Column indices for the plan table
+    _COL_FILE     = 0
+    _COL_CATEGORY = 1
+    _COL_DEST     = 2
+    _COL_STATUS   = 3
 
-        # Shared Organizer — owns the undo stack and DB history writes
-        db_manager = getattr(self.services, "db_manager", None)
-        self._organizer = Organizer(db_manager=db_manager)
+    def __init__(self, service: FileService, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._service      = service
+        self._scan_path    : str  = ""
+        self._scan_results : list = []
+        self._plan         : list = []   # list[dict] from FileService.plan_organisation()
+        self._target_folder: Path | None = None
 
         self._build_ui()
-        self._connect_events()
-        self._setup_shortcuts()
-        logger.info("MainWindow ready")
 
-    def closeEvent(self, event) -> None:
-        """Release application services cleanly when the window closes."""
-        try:
-            self.services.close()
-        except Exception:
-            logger.exception("Failed to close application services cleanly.")
-        super().closeEvent(event)
-
-    # ── Build UI ───────────────────────────────────────────────────
+    # ── UI construction ────────────────────────────────────────────
 
     def _build_ui(self) -> None:
-        root = QWidget()
-        root.setObjectName("Root")
-        self.setCentralWidget(root)
-
-        layout = QHBoxLayout(root)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        layout.setSpacing(16)
 
-        layout.addWidget(self._build_sidebar())
-        layout.addWidget(self._build_content(), 1)
-
-    def _build_sidebar(self) -> QFrame:
-        sidebar = QFrame()
-        sidebar.setObjectName("Sidebar")
-        sidebar.setFixedWidth(220)
-
-        layout = QVBoxLayout(sidebar)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-
-        # Brand
-        brand_widget = QWidget()
-        brand_widget.setFixedHeight(64)
-        brand_layout = QHBoxLayout(brand_widget)
-        brand_layout.setContentsMargins(16, 0, 16, 0)
-        brand_layout.setSpacing(10)
-
-        logo = QLabel("D")
-        logo.setAlignment(Qt.AlignCenter)
-        logo.setFixedSize(30, 30)
-        logo.setStyleSheet(
-            "background:#0A84FF; color:white; font-size:14px;"
-            "font-weight:700; border-radius:7px;"
+        # ── Status banner ──────────────────────────────────────────
+        self._banner = QLabel("No scan results yet — go to Home and scan a folder first.")
+        self._banner.setObjectName("StatusBanner")
+        self._banner.setAlignment(Qt.AlignCenter)
+        self._banner.setStyleSheet(
+            "background:#2C2C2E; color:#8E8E93; padding:10px 16px;"
+            "border-radius:8px; font-size:13px;"
         )
-        brand_layout.addWidget(logo)
+        layout.addWidget(self._banner)
 
-        text_col = QVBoxLayout()
-        text_col.setSpacing(1)
-        brand_name = QLabel(APP_NAME)
-        brand_name.setObjectName("Brand")
-        brand_sub = QLabel("AI File Organizer")
-        brand_sub.setObjectName("BrandSubtitle")
-        text_col.addWidget(brand_name)
-        text_col.addWidget(brand_sub)
-        brand_layout.addLayout(text_col)
-        brand_layout.addStretch()
+        # ── Summary chips row ──────────────────────────────────────
+        self._chips_row = QHBoxLayout()
+        self._chips_row.setSpacing(8)
+        chips_widget = QWidget()
+        chips_widget.setLayout(self._chips_row)
+        layout.addWidget(chips_widget)
 
-        layout.addWidget(brand_widget)
+        # ── Plan table ────────────────────────────────────────────
+        self._table = QTableWidget()
+        self._table.setColumnCount(4)
+        self._table.setHorizontalHeaderLabels(["File", "Category", "Destination", "Status"])
+        self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self._table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
+        self._table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self._table.setSelectionBehavior(QTableWidget.SelectRows)
+        self._table.setAlternatingRowColors(True)
+        self._table.verticalHeader().setVisible(False)
+        layout.addWidget(self._table, 1)
 
-        # Divider
-        div = QFrame()
-        div.setFrameShape(QFrame.HLine)
-        div.setFixedHeight(1)
-        div.setStyleSheet("background: #3A3A3C; border: none;")
-        layout.addWidget(div)
+        # ── Progress bar (hidden until apply is running) ───────────
+        self._progress = QProgressBar()
+        self._progress.setVisible(False)
+        self._progress.setTextVisible(False)
+        self._progress.setFixedHeight(4)
+        layout.addWidget(self._progress)
 
-        layout.addSpacing(8)
+        # ── Action bar ────────────────────────────────────────────
+        action_bar = QHBoxLayout()
+        action_bar.setSpacing(8)
 
-        # Nav group label
-        nav_group = QLabel("MENU")
-        nav_group.setObjectName("NavGroup")
-        nav_group.setContentsMargins(18, 4, 0, 4)
-        layout.addWidget(nav_group)
+        self._btn_choose = QPushButton("Choose Target Folder…")
+        self._btn_choose.setObjectName("SecondaryButton")
+        self._btn_choose.clicked.connect(self._choose_folder)
+        action_bar.addWidget(self._btn_choose)
 
-        # Nav list
-        self.nav = QListWidget()
-        self.nav.setObjectName("NavList")
-        self.nav.setFocusPolicy(Qt.NoFocus)
-        self.nav.setSpacing(1)
+        self._btn_plan = QPushButton("Build Plan")
+        self._btn_plan.setObjectName("SecondaryButton")
+        self._btn_plan.setEnabled(False)
+        self._btn_plan.clicked.connect(self._build_plan)
+        action_bar.addWidget(self._btn_plan)
 
-        self.sections = [label for _, label, _ in _NAV]
+        action_bar.addStretch()
 
-        for icon, label, _ in _NAV:
-            item = QListWidgetItem(f"  {icon}  {label}")
-            item.setSizeHint(QSize(220, 36))
-            self.nav.addItem(item)
+        self._btn_apply = QPushButton("Apply Plan")
+        self._btn_apply.setObjectName("PrimaryButton")
+        self._btn_apply.setEnabled(False)
+        self._btn_apply.clicked.connect(self._apply_plan)
+        action_bar.addWidget(self._btn_apply)
 
-        layout.addWidget(self.nav, 1)
-        layout.addSpacing(8)
+        self._btn_undo = QPushButton("Undo Last")
+        self._btn_undo.setObjectName("SecondaryButton")
+        self._btn_undo.setEnabled(False)
+        self._btn_undo.clicked.connect(self._undo_last)
+        action_bar.addWidget(self._btn_undo)
 
-        # Version
-        ver = QLabel("v2.0.0")
-        ver.setObjectName("Caption")
-        ver.setAlignment(Qt.AlignCenter)
-        ver.setContentsMargins(0, 0, 0, 12)
-        layout.addWidget(ver)
+        layout.addLayout(action_bar)
 
-        return sidebar
+    # ── Public API called by MainWindow ───────────────────────────
 
-    def _build_content(self) -> QWidget:
-        content = QWidget()
-        content.setObjectName("Content")
+    def set_scan_context(self, scan_path: str, results: list) -> None:
+        """Receive a completed scan from HomeView (via MainWindow broadcast)."""
+        self._scan_path    = str(scan_path)
+        self._scan_results = results or []
+        self._plan         = []
+        self._target_folder = Path(self._scan_path) if self._scan_path else None
 
-        layout = QVBoxLayout(content)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        count = len(self._scan_results)
+        self._banner.setText(
+            f"✓  {count} file{'s' if count != 1 else ''} scanned from "
+            f"{Path(self._scan_path).name!r} — choose a target folder and build a plan."
+        )
+        self._banner.setStyleSheet(
+            "background:#1C3A2A; color:#30D158; padding:10px 16px;"
+            "border-radius:8px; font-size:13px;"
+        )
+        self._update_chips()
+        self._clear_table()
+        self._btn_plan.setEnabled(bool(self._scan_results))
+        self._btn_apply.setEnabled(False)
 
-        # Header bar
-        self.header_bar = self._build_header_bar()
-        layout.addWidget(self.header_bar)
+    # ── Internal helpers ──────────────────────────────────────────
 
-        # Divider
-        div = QFrame()
-        div.setFrameShape(QFrame.HLine)
-        div.setFixedHeight(1)
-        div.setStyleSheet("background: #3A3A3C; border: none;")
-        layout.addWidget(div)
+    def _update_chips(self) -> None:
+        """Rebuild category summary chips."""
+        # Remove old chips
+        while self._chips_row.count():
+            item = self._chips_row.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
 
-        # Page content (with padding)
-        wrapper = QWidget()
-        wrapper.setObjectName("Content")
-        w_layout = QVBoxLayout(wrapper)
-        w_layout.setContentsMargins(28, 20, 28, 20)
-        w_layout.setSpacing(0)
+        # Count by category
+        cats: dict[str, int] = {}
+        for r in self._scan_results:
+            cat = r.get("category", "Unknown") if isinstance(r, dict) else getattr(r, "category", "Unknown")
+            cats[cat] = cats.get(cat, 0) + 1
 
-        # Views
-        self.stack = AnimatedStackedWidget()
-        self.home_view     = HomeView(self._service)
-        self.organize_view = OrganizeView(self._organizer)
-        self.search_view   = SearchView(self._service)
-        self.chat_view     = ChatView()
-        self.history_view  = HistoryView()
-        self.settings_view = SettingsView()
+        for cat, count in sorted(cats.items(), key=lambda x: -x[1])[:8]:
+            chip = QLabel(f"  {cat}  {count}  ")
+            chip.setStyleSheet(
+                "background:#2C2C2E; color:#E5E5EA; border-radius:10px;"
+                "font-size:11px; padding:3px 8px;"
+            )
+            self._chips_row.addWidget(chip)
+        self._chips_row.addStretch()
 
-        for view in [
-            self.home_view, self.organize_view,
-            self.search_view, self.chat_view,
-            self.history_view, self.settings_view,
-        ]:
-            self.stack.addWidget(view)
+    def _clear_table(self) -> None:
+        self._table.setRowCount(0)
 
-        w_layout.addWidget(self.stack)
-        layout.addWidget(wrapper, 1)
+    def _populate_table(self, plan: list) -> None:
+        self._table.setRowCount(0)
+        for item in plan:
+            row = self._table.rowCount()
+            self._table.insertRow(row)
+            filename = Path(item.get("source", "")).name
+            self._table.setItem(row, self._COL_FILE,     QTableWidgetItem(filename))
+            self._table.setItem(row, self._COL_CATEGORY, QTableWidgetItem(item.get("category", "")))
+            dest = item.get("destination", "")
+            self._table.setItem(row, self._COL_DEST,     QTableWidgetItem(str(dest)))
+            self._table.setItem(row, self._COL_STATUS,   QTableWidgetItem(item.get("status", "pending")))
 
-        self.nav.setCurrentRow(0)
-        self._update_theme_button()
+    # ── Button handlers ───────────────────────────────────────────
 
-        return content
+    def _choose_folder(self) -> None:
+        folder = QFileDialog.getExistingDirectory(
+            self, "Choose target folder",
+            self._scan_path or str(Path.home()),
+        )
+        if folder:
+            self._target_folder = Path(folder)
+            self._btn_plan.setEnabled(bool(self._scan_results))
+            self._banner.setText(
+                self._banner.text().split("—")[0].strip()
+                + f" — target: {self._target_folder.name!r}"
+            )
 
-    def _build_header_bar(self) -> QWidget:
-        bar = QWidget()
-        bar.setObjectName("Content")
-        bar.setFixedHeight(52)
-
-        layout = QHBoxLayout(bar)
-        layout.setContentsMargins(28, 0, 20, 0)
-
-        self.page_title = QLabel("Home")
-        self.page_title.setObjectName("PageTitle")
-        layout.addWidget(self.page_title)
-
-        layout.addStretch()
-
-        # Theme toggle
-        self.theme_button = QPushButton()
-        self.theme_button.setObjectName("ThemeButton")
-        layout.addWidget(self.theme_button)
-
-        return bar
-
-    # ── Events ─────────────────────────────────────────────────────
-
-    def _connect_events(self) -> None:
-        self.nav.currentRowChanged.connect(self._on_nav_changed)
-        self.theme_button.clicked.connect(self._toggle_theme)
-        self.home_view.scan_ready.connect(self._on_scan_ready)
-        # After apply/undo, HistoryView refreshes automatically
-        self.organize_view.history_changed.connect(self.history_view.refresh)
-
-    def _on_nav_changed(self, index: int) -> None:
-        if not (0 <= index < len(self.sections)):
+    def _build_plan(self) -> None:
+        if not self._scan_results:
             return
-        self.stack.setCurrentIndex(index)
-        self.page_title.setText(self.sections[index])
-
-    def _on_scan_ready(self, scan_path: str, results: list) -> None:
-        """
-        Broadcast completed scan results to all consumer views.
-
-        HomeView emits scan_ready(scan_path: str, results: list).
-        results may be FileInfo objects (new domain layer) or plain dicts
-        (legacy FileService path) — each view handles its own type.
-        """
-        self._broadcast_scan_context(scan_path, results)
-
-    def _broadcast_scan_context(self, scan_path: str, results: list) -> None:
-        """Forward scan results to every view that supports them."""
-        from pathlib import Path as _Path
-
-        # ── OrganizeView: needs (Path, list[FileInfo]) ────────────────────────
+        target = self._target_folder or Path(self._scan_path)
         try:
-            self.organize_view.set_scan_context(_Path(scan_path), results)
+            self._plan = self._service.plan_organisation(
+                target_folder=target,
+                scan_results=self._scan_results if isinstance(self._scan_results[0], dict) else None,
+            )
         except Exception as exc:
-            logger.warning("OrganizeView.set_scan_context() raised %s: %s",
-                           type(exc).__name__, exc)
+            logger.error("plan_organisation failed: %s", exc)
+            QMessageBox.warning(self, "Plan Error", str(exc))
+            return
 
-        # ── SearchView / ChatView: still use (str, list) legacy signature ─────
-        for view, method_name, view_name in [
-            (self.search_view, "set_scan_context", "SearchView"),
-            (self.chat_view,   "set_scan_context", "ChatView"),
-        ]:
-            fn = getattr(view, method_name, None)
-            if not callable(fn):
-                logger.debug("%s.%s() not implemented — skipping.", view_name, method_name)
-                continue
-            try:
-                fn(scan_path, results)
-            except Exception as exc:
-                logger.warning("%s.%s() raised %s: %s",
-                               view_name, method_name, type(exc).__name__, exc)
+        self._populate_table(self._plan)
+        count = len(self._plan)
+        self._banner.setText(
+            f"Plan ready — {count} action{'s' if count != 1 else ''} to apply."
+        )
+        self._btn_apply.setEnabled(bool(self._plan))
 
-        # ── HistoryView refreshes on its own after apply via history_changed ──
-        # But also refresh on every new scan so stale rows are cleared.
+    def _apply_plan(self) -> None:
+        if not self._plan:
+            return
+        confirm = QMessageBox.question(
+            self, "Apply Plan",
+            f"Move {len(self._plan)} file(s)?\nThis can be undone.",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if confirm != QMessageBox.Yes:
+            return
+
+        self._btn_apply.setEnabled(False)
+        self._progress.setVisible(True)
+        self._progress.setRange(0, 0)  # indeterminate
+
         try:
-            self.history_view.refresh()
+            result = self._service.apply_plan(self._plan)
         except Exception as exc:
-            logger.debug("HistoryView.refresh() raised %s: %s", type(exc).__name__, exc)
+            logger.error("apply_plan failed: %s", exc)
+            QMessageBox.critical(self, "Apply Failed", str(exc))
+            self._progress.setVisible(False)
+            self._btn_apply.setEnabled(True)
+            return
 
-        logger.info(
-            "Scan context broadcast complete (path=%s, %d results).",
-            scan_path, len(results or []),
+        self._progress.setVisible(False)
+        success  = result.get("success", 0)
+        failed   = result.get("failed", 0)
+        self._banner.setText(
+            f"✓  Done — {success} moved, {failed} failed."
         )
+        self._btn_undo.setEnabled(True)
+        self.history_changed.emit()
 
-    # ── Shortcuts ──────────────────────────────────────────────────
-
-    def _setup_shortcuts(self) -> None:
-        shortcuts = [
-            ("Ctrl+1", 0), ("Ctrl+2", 1), ("Ctrl+3", 2),
-            ("Ctrl+4", 3), ("Ctrl+5", 4), ("Ctrl+6", 5),
-        ]
-        for key, idx in shortcuts:
-            sc = QShortcut(QKeySequence(key), self)
-            sc.activated.connect(lambda i=idx: self._jump_to(i))
-
-    def _jump_to(self, index: int) -> None:
-        self.nav.setCurrentRow(index)
-
-    # ── Theme ──────────────────────────────────────────────────────
-
-    def _toggle_theme(self) -> None:
-        self.current_theme = "light" if self.current_theme == "dark" else "dark"
-        apply_theme(self.application(), self.current_theme)
-        Settings.app.theme = self.current_theme
+    def _undo_last(self) -> None:
+        confirm = QMessageBox.question(
+            self, "Undo", "Reverse the last applied batch?",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if confirm != QMessageBox.Yes:
+            return
         try:
-            Settings.save()
-        except Exception:
-            logger.exception("Failed to persist theme setting.")
-        self._update_theme_button()
+            result = self._service.undo_last()
+        except Exception as exc:
+            logger.error("undo_last failed: %s", exc)
+            QMessageBox.critical(self, "Undo Failed", str(exc))
+            return
 
-    def _update_theme_button(self) -> None:
-        self.theme_button.setText("☀" if self.current_theme == "dark" else "☾")
-        self.theme_button.setToolTip(
-            "Switch to light mode" if self.current_theme == "dark"
-            else "Switch to dark mode"
-        )
-
-    def application(self):
-        from PySide6.QtWidgets import QApplication
-        return QApplication.instance()
+        reversed_count = result.get("reversed", 0)
+        self._banner.setText(f"↶  Undone — {reversed_count} file(s) restored.")
+        self._btn_undo.setEnabled(False)
+        self.history_changed.emit()

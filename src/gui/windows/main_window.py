@@ -24,11 +24,10 @@ from gui.components.animated_stack import AnimatedStackedWidget
 from infrastructure.config.settings import Settings
 from core.logger import get_logger
 from services import ApplicationServices
-from application.organizer import Organizer
+from domain.organizer.organizer import Organizer   # ← fixed (was application.organizer)
 
 logger = get_logger(__name__)
 
-# Nav: (icon, label, subtitle)
 _NAV = [
     ("⌂", "Home",     "Scan and understand your files."),
     ("⊞", "Organize", "Review and safely apply organization plans."),
@@ -51,12 +50,9 @@ class MainWindow(QMainWindow):
         self.resize(WINDOW_DEFAULT_WIDTH, WINDOW_DEFAULT_HEIGHT)
         self.setMinimumSize(1100, 680)
 
-        # Services are created by the application composition root and injected
-        # into the shell. The shell only consumes them and owns their shutdown.
         self._service = self.services.file_service
         self._service.open()
 
-        # Shared Organizer — owns the undo stack and DB history writes
         db_manager = getattr(self.services, "db_manager", None)
         self._organizer = Organizer(db_manager=db_manager)
 
@@ -66,7 +62,6 @@ class MainWindow(QMainWindow):
         logger.info("MainWindow ready")
 
     def closeEvent(self, event) -> None:
-        """Release application services cleanly when the window closes."""
         try:
             self.services.close()
         except Exception:
@@ -79,11 +74,9 @@ class MainWindow(QMainWindow):
         root = QWidget()
         root.setObjectName("Root")
         self.setCentralWidget(root)
-
         layout = QHBoxLayout(root)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-
         layout.addWidget(self._build_sidebar())
         layout.addWidget(self._build_content(), 1)
 
@@ -91,18 +84,15 @@ class MainWindow(QMainWindow):
         sidebar = QFrame()
         sidebar.setObjectName("Sidebar")
         sidebar.setFixedWidth(220)
-
         layout = QVBoxLayout(sidebar)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Brand
         brand_widget = QWidget()
         brand_widget.setFixedHeight(64)
         brand_layout = QHBoxLayout(brand_widget)
         brand_layout.setContentsMargins(16, 0, 16, 0)
         brand_layout.setSpacing(10)
-
         logo = QLabel("D")
         logo.setAlignment(Qt.AlignCenter)
         logo.setFixedSize(30, 30)
@@ -111,7 +101,6 @@ class MainWindow(QMainWindow):
             "font-weight:700; border-radius:7px;"
         )
         brand_layout.addWidget(logo)
-
         text_col = QVBoxLayout()
         text_col.setSpacing(1)
         brand_name = QLabel(APP_NAME)
@@ -122,79 +111,64 @@ class MainWindow(QMainWindow):
         text_col.addWidget(brand_sub)
         brand_layout.addLayout(text_col)
         brand_layout.addStretch()
-
         layout.addWidget(brand_widget)
 
-        # Divider
         div = QFrame()
         div.setFrameShape(QFrame.HLine)
         div.setFixedHeight(1)
         div.setStyleSheet("background: #3A3A3C; border: none;")
         layout.addWidget(div)
-
         layout.addSpacing(8)
 
-        # Nav group label
         nav_group = QLabel("MENU")
         nav_group.setObjectName("NavGroup")
         nav_group.setContentsMargins(18, 4, 0, 4)
         layout.addWidget(nav_group)
 
-        # Nav list
         self.nav = QListWidget()
         self.nav.setObjectName("NavList")
         self.nav.setFocusPolicy(Qt.NoFocus)
         self.nav.setSpacing(1)
-
         self.sections = [label for _, label, _ in _NAV]
-
         for icon, label, _ in _NAV:
             item = QListWidgetItem(f"  {icon}  {label}")
             item.setSizeHint(QSize(220, 36))
             self.nav.addItem(item)
-
         layout.addWidget(self.nav, 1)
         layout.addSpacing(8)
 
-        # Version
         ver = QLabel("v2.0.0")
         ver.setObjectName("Caption")
         ver.setAlignment(Qt.AlignCenter)
         ver.setContentsMargins(0, 0, 0, 12)
         layout.addWidget(ver)
-
         return sidebar
 
     def _build_content(self) -> QWidget:
         content = QWidget()
         content.setObjectName("Content")
-
         layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Header bar
         self.header_bar = self._build_header_bar()
         layout.addWidget(self.header_bar)
 
-        # Divider
         div = QFrame()
         div.setFrameShape(QFrame.HLine)
         div.setFixedHeight(1)
         div.setStyleSheet("background: #3A3A3C; border: none;")
         layout.addWidget(div)
 
-        # Page content (with padding)
         wrapper = QWidget()
         wrapper.setObjectName("Content")
         w_layout = QVBoxLayout(wrapper)
         w_layout.setContentsMargins(28, 20, 28, 20)
         w_layout.setSpacing(0)
 
-        # Views
         self.stack = AnimatedStackedWidget()
         self.home_view     = HomeView(self._service)
-        self.organize_view = OrganizeView(self._organizer)
+        self.organize_view = OrganizeView(self._service)
         self.search_view   = SearchView(self._service)
         self.chat_view     = ChatView()
         self.history_view  = HistoryView()
@@ -209,31 +183,23 @@ class MainWindow(QMainWindow):
 
         w_layout.addWidget(self.stack)
         layout.addWidget(wrapper, 1)
-
         self.nav.setCurrentRow(0)
         self._update_theme_button()
-
         return content
 
     def _build_header_bar(self) -> QWidget:
         bar = QWidget()
         bar.setObjectName("Content")
         bar.setFixedHeight(52)
-
         layout = QHBoxLayout(bar)
         layout.setContentsMargins(28, 0, 20, 0)
-
         self.page_title = QLabel("Home")
         self.page_title.setObjectName("PageTitle")
         layout.addWidget(self.page_title)
-
         layout.addStretch()
-
-        # Theme toggle
         self.theme_button = QPushButton()
         self.theme_button.setObjectName("ThemeButton")
         layout.addWidget(self.theme_button)
-
         return bar
 
     # ── Events ─────────────────────────────────────────────────────
@@ -242,8 +208,8 @@ class MainWindow(QMainWindow):
         self.nav.currentRowChanged.connect(self._on_nav_changed)
         self.theme_button.clicked.connect(self._toggle_theme)
         self.home_view.scan_ready.connect(self._on_scan_ready)
-        # After apply/undo, HistoryView refreshes automatically
-        self.organize_view.history_changed.connect(self.history_view.refresh)
+        if hasattr(self.organize_view, "history_changed"):
+            self.organize_view.history_changed.connect(self.history_view.refresh)
 
     def _on_nav_changed(self, index: int) -> None:
         if not (0 <= index < len(self.sections)):
@@ -252,61 +218,35 @@ class MainWindow(QMainWindow):
         self.page_title.setText(self.sections[index])
 
     def _on_scan_ready(self, scan_path: str, results: list) -> None:
-        """
-        Broadcast completed scan results to all consumer views.
-
-        HomeView emits scan_ready(scan_path: str, results: list).
-        results may be FileInfo objects (new domain layer) or plain dicts
-        (legacy FileService path) — each view handles its own type.
-        """
         self._broadcast_scan_context(scan_path, results)
 
     def _broadcast_scan_context(self, scan_path: str, results: list) -> None:
-        """Forward scan results to every view that supports them."""
-        from pathlib import Path as _Path
-
-        # ── OrganizeView: needs (Path, list[FileInfo]) ────────────────────────
-        try:
-            self.organize_view.set_scan_context(_Path(scan_path), results)
-        except Exception as exc:
-            logger.warning("OrganizeView.set_scan_context() raised %s: %s",
-                           type(exc).__name__, exc)
-
-        # ── SearchView / ChatView: still use (str, list) legacy signature ─────
-        for view, method_name, view_name in [
-            (self.search_view, "set_scan_context", "SearchView"),
-            (self.chat_view,   "set_scan_context", "ChatView"),
+        for view, name in [
+            (self.organize_view, "OrganizeView"),
+            (self.search_view,   "SearchView"),
+            (self.chat_view,     "ChatView"),
         ]:
-            fn = getattr(view, method_name, None)
-            if not callable(fn):
-                logger.debug("%s.%s() not implemented — skipping.", view_name, method_name)
-                continue
-            try:
-                fn(scan_path, results)
-            except Exception as exc:
-                logger.warning("%s.%s() raised %s: %s",
-                               view_name, method_name, type(exc).__name__, exc)
-
-        # ── HistoryView refreshes on its own after apply via history_changed ──
-        # But also refresh on every new scan so stale rows are cleared.
+            fn = getattr(view, "set_scan_context", None)
+            if callable(fn):
+                try:
+                    fn(scan_path, results)
+                except Exception as exc:
+                    logger.warning("%s.set_scan_context() raised %s: %s",
+                                   name, type(exc).__name__, exc)
         try:
             self.history_view.refresh()
         except Exception as exc:
             logger.debug("HistoryView.refresh() raised %s: %s", type(exc).__name__, exc)
-
-        logger.info(
-            "Scan context broadcast complete (path=%s, %d results).",
-            scan_path, len(results or []),
-        )
+        logger.info("Scan context broadcast complete (path=%s, %d results).",
+                    scan_path, len(results or []))
 
     # ── Shortcuts ──────────────────────────────────────────────────
 
     def _setup_shortcuts(self) -> None:
-        shortcuts = [
+        for key, idx in [
             ("Ctrl+1", 0), ("Ctrl+2", 1), ("Ctrl+3", 2),
             ("Ctrl+4", 3), ("Ctrl+5", 4), ("Ctrl+6", 5),
-        ]
-        for key, idx in shortcuts:
+        ]:
             sc = QShortcut(QKeySequence(key), self)
             sc.activated.connect(lambda i=idx: self._jump_to(i))
 

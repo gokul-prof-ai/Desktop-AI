@@ -1,188 +1,613 @@
-"""src/gui/dialogs/setup_wizard.py"""
-import os
-import time
-import requests
-from PySide6.QtCore import Signal, Qt, QThread, QObject
-from PySide6.QtWidgets import (
-    QWizard, QWizardPage, QVBoxLayout, QHBoxLayout, QLabel, 
-    QPushButton, QFileDialog, QProgressBar
-)
+"""
+DesktopAI v2.0 — Setup Wizard
+File: src/gui/dialogs/setup_wizard.py
+
+First-run onboarding:
+    1. Check Ollama availability.
+    2. Select the initial scan folder.
+    3. Scan files and build the semantic search index.
+
+The wizard is safe to run with --mock-ai. In mock mode, the Ollama
+connectivity requirement is bypassed because the application provider
+has already been replaced by MockProvider in main.py.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Optional
+import urllib.error
+import urllib.request
+
+from PySide6.QtCore import QThread, Signal
 from PySide6.QtGui import QFont
+from PySide6.QtWidgets import (
+    QFileDialog,
+    QLabel,
+    QProgressBar,
+    QPushButton,
+    QVBoxLayout,
+    QWizard,
+    QWizardPage,
+)
 
 from infrastructure.config.settings import Settings
-from application.file_service import FileService
+from services import ApplicationServices
 
 
-class OllamaCheckWorker(QObject):
-    finished = Signal(bool)
+class OllamaCheckThread(QThread):
+    """Check Ollama availability without blocking the GUI."""
 
-    def run(self):
+    check_completed = Signal(bool, str)
+
+    def __init__(self, host: str = "http://localhost:11434") -> None:
+        super().__init__()
+        self._host = host.rstrip("/")
+
+    def run(self) -> None:
+        url = f"{self._host}/api/tags"
+
         try:
-            response = requests.get("http://localhost:11434/api/tags", timeout=2)
-            self.finished.emit(response.status_code == 200)
-        except Exception:
-            self.finished.emit(False)
+            request = urllib.request.Request(
+                url,
+                method="GET",
+                headers={"Accept": "application/json"},
+            )
+
+            with urllib.request.urlopen(request, timeout=2.0) as response:
+                ok = 200 <= response.status < 300
+
+            if ok:
+                self.check_completed.emit(
+                    True,
+                    f"Ollama is running at {self._host}",
+                )
+            else:
+                self.check_completed.emit(
+                    False,
+                    f"Ollama returned HTTP {response.status}.",
+                )
+
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            self.check_completed.emit(
+                False,
+                f"Ollama is not reachable: {exc}",
+            )
+        except Exception as exc:
+            self.check_completed.emit(
+                False,
+                f"Ollama check failed: {exc}",
+            )
 
 
-class IndexBuildWorker(QObject):
-    progress = Signal(int)
-    finished = Signal(bool)
+class IndexBuildThread(QThread):
+    """Scan the selected folder and build the search index."""
 
-    def run(self):
+    progress = Signal(int, str)
+    build_completed = Signal(dict)
+    error = Signal(str)
+
+    def __init__(
+        self,
+        file_service,
+        scan_folder: Path,
+    ) -> None:
+        super().__init__()
+        self._file_service = file_service
+        self._scan_folder = scan_folder
+
+    def run(self) -> None:
         try:
-            # Trigger FAISS build
-            FileService.build_index()
-            # Simulate progress UI update
-            for i in range(1, 101):
-                self.progress.emit(i)
-                time.sleep(0.05)
-            self.finished.emit(True)
-        except Exception as e:
-            print(f"Error building index: {e}")
-            self.finished.emit(False)
+            self.progress.emit(
+                5,
+                "Scanning selected folder…",
+            )
+
+            results = self._file_service.scan_folder(
+                str(self._scan_folder),
+                progress_callback=self._on_scan_progress,
+            )
+
+            self.progress.emit(
+                50,
+                f"Scan complete — {len(results)} files found.",
+            )
+
+            self.progress.emit(
+                60,
+                "Building semantic search index…",
+            )
+
+            index_result = self._file_service.build_index(
+                files=results,
+                progress_callback=self._on_index_progress,
+            )
+
+            if not isinstance(index_result, dict):
+                index_result = {
+                    "indexed": 0,
+                    "error": "Invalid index-build response.",
+                }
+
+            error_message = index_result.get("error")
+            if error_message:
+                self.error.emit(str(error_message))
+                return
+
+            indexed = int(index_result.get("indexed", 0))
+
+            self.progress.emit(
+                100,
+                f"Index complete — {indexed} files indexed.",
+            )
+
+            self.build_completed.emit(
+                {
+                    "scanned": len(results),
+                    "indexed": indexed,
+                    "folder": str(self._scan_folder),
+                }
+            )
+
+        except Exception as exc:
+            self.error.emit(str(exc))
+
+    def _on_scan_progress(
+        self,
+        value: int,
+        message: str,
+    ) -> None:
+        # Map scan progress (0–100) into wizard progress (5–50).
+        mapped = 5 + int(max(0, min(100, value)) * 0.45)
+        self.progress.emit(mapped, message)
+
+    def _on_index_progress(
+        self,
+        value: int,
+        message: str,
+    ) -> None:
+        # Map index progress (0–100) into wizard progress (60–100).
+        mapped = 60 + int(max(0, min(100, value)) * 0.40)
+        self.progress.emit(mapped, message)
 
 
 class WelcomePage(QWizardPage):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setTitle("Welcome to DesktopAI V2")
-        self.setSubTitle("Let's check your local AI setup.")
+    """Page 1: welcome and Ollama connectivity check."""
+
+    def __init__(
+        self,
+        allow_offline: bool = False,
+    ) -> None:
+        super().__init__()
+
+        self.setTitle("Welcome to DesktopAI")
+        self.setSubTitle(
+            "Set up your local AI file organizer."
+        )
+
+        self._allow_offline = allow_offline
+        self._ollama_ok = False
+        self._thread: OllamaCheckThread | None = None
 
         layout = QVBoxLayout()
-        self.status_label = QLabel("Checking Ollama status...")
-        self.status_label.setFont(QFont("Segoe UI", 10))
-        layout.addWidget(self.status_label)
 
-        self.setLayout(layout)
-        
-        self.worker_thread = QThread()
-        self.worker = OllamaCheckWorker()
-        self.worker.moveToThread(self.worker_thread)
-        
-        self.worker_thread.started.connect(self.worker.run)
-        self.worker.finished.connect(self.on_check_finished)
-        self.worker.finished.connect(self.worker_thread.quit)
-        
-        self.worker_thread.start()
+        welcome_text = QLabel(
+            "DesktopAI organizes, searches, and understands your files locally.\n\n"
+            "This setup will:\n"
+            "1. Check your local AI provider\n"
+            "2. Let you choose a scan folder\n"
+            "3. Build the semantic search index"
+        )
+        welcome_text.setWordWrap(True)
+        layout.addWidget(welcome_text)
 
-    def on_check_finished(self, is_running: bool):
-        if is_running:
-            self.status_label.setText("✅ Ollama is running! (llama3.2:3b)")
-            self.status_label.setStyleSheet("color: green;")
-        else:
-            self.status_label.setText("⚠️ Ollama is not running. You can still use DesktopAI in mock mode,\nbut please run 'ollama serve' in your terminal for full features.")
-            self.status_label.setStyleSheet("color: orange;")
-        self.completeChanged.emit()
+        layout.addSpacing(20)
 
-    def isComplete(self):
-        return True
+        self.ollama_status_lbl = QLabel(
+            "Checking Ollama…"
+        )
+        self.ollama_status_lbl.setWordWrap(True)
+        self.ollama_status_lbl.setFont(
+            QFont("Segoe UI", 10)
+        )
+        layout.addWidget(self.ollama_status_lbl)
 
+        self.check_btn = QPushButton(
+            "Check Ollama Status"
+        )
+        self.check_btn.clicked.connect(
+            self._check_ollama
+        )
+        layout.addWidget(self.check_btn)
 
-class ScanFolderPage(QWizardPage):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setTitle("Select Folder to Organize")
-        self.setSubTitle("Choose the main directory you want DesktopAI to scan.")
+        if self._allow_offline:
+            self.mock_note = QLabel(
+                "Mock AI mode detected. Ollama is optional for this run."
+            )
+            self.mock_note.setWordWrap(True)
+            self.mock_note.setObjectName("Muted")
+            layout.addWidget(self.mock_note)
 
-        layout = QVBoxLayout()
-        
-        path_layout = QHBoxLayout()
-        self.path_input = QLabel("No folder selected")
-        self.path_input.setStyleSheet("padding: 8px; background: #f0f0f0; border: 1px solid #ccc; border-radius: 4px;")
-        path_layout.addWidget(self.path_input, 1)
-        
-        self.browse_btn = QPushButton("Browse...")
-        self.browse_btn.clicked.connect(self.browse)
-        path_layout.addWidget(self.browse_btn)
-        
-        layout.addLayout(path_layout)
         layout.addStretch()
         self.setLayout(layout)
 
-    def browse(self):
-        folder = QFileDialog.getExistingDirectory(self, "Select Scan Folder")
-        if folder:
-            self.path_input.setText(folder)
+        if self._allow_offline:
+            self._ollama_ok = True
+            self.ollama_status_lbl.setText(
+                "✓ Offline/mock mode enabled — Ollama check skipped."
+            )
+            self.check_btn.setEnabled(False)
+        else:
+            self._check_ollama()
+
+    def _check_ollama(self) -> None:
+        if self._thread is not None and self._thread.isRunning():
+            return
+
+        self.check_btn.setEnabled(False)
+        self.ollama_status_lbl.setText(
+            "Checking Ollama…"
+        )
+
+        self._thread = OllamaCheckThread(
+            host=Settings.ai.host
+        )
+        self._thread.check_completed.connect(
+            self._on_ollama_check_done
+        )
+        self._thread.finished.connect(
+            self._on_ollama_thread_finished
+        )
+        self._thread.start()
+
+    def _on_ollama_check_done(
+        self,
+        is_running: bool,
+        message: str,
+    ) -> None:
+        if is_running:
+            self._ollama_ok = True
+            self.ollama_status_lbl.setText(
+                f"✓ {message}"
+            )
+            self.check_btn.setEnabled(False)
+        else:
+            self._ollama_ok = False
+            self.ollama_status_lbl.setText(
+                "✗ Ollama is not running.\n\n"
+                f"{message}\n\n"
+                "Start Ollama and click 'Check Ollama Status' again."
+            )
+            self.check_btn.setEnabled(True)
+
+        self.completeChanged.emit()
+
+    def _on_ollama_thread_finished(self) -> None:
+        thread = self._thread
+        self._thread = None
+
+        if thread is not None:
+            thread.deleteLater()
+
+    def isComplete(self) -> bool:
+        return self._ollama_ok
+
+
+class ScanFolderPage(QWizardPage):
+    """Page 2: select the initial scan folder."""
+
+    def __init__(self) -> None:
+        super().__init__()
+
+        self.setTitle("Select Scan Folder")
+        self.setSubTitle(
+            "Choose the folder DesktopAI should scan."
+        )
+
+        self.scan_folder: Optional[Path] = None
+
+        layout = QVBoxLayout()
+
+        self.folder_lbl = QLabel(
+            "No folder selected."
+        )
+        self.folder_lbl.setWordWrap(True)
+        layout.addWidget(self.folder_lbl)
+
+        browse_btn = QPushButton(
+            "Browse…"
+        )
+        browse_btn.clicked.connect(
+            self._pick_folder
+        )
+        layout.addWidget(browse_btn)
+
+        layout.addSpacing(20)
+
+        info = QLabel(
+            "DesktopAI will scan this folder and its supported files.\n"
+            "Large directories may take longer during the initial setup."
+        )
+        info.setWordWrap(True)
+        info.setObjectName("Muted")
+        layout.addWidget(info)
+
+        layout.addStretch()
+        self.setLayout(layout)
+
+        # Reuse previously selected folder when available.
+        configured = str(
+            getattr(Settings.app, "scan_folder", "") or ""
+        ).strip()
+
+        if configured:
+            candidate = Path(configured)
+            if candidate.exists() and candidate.is_dir():
+                self.scan_folder = candidate
+                self.folder_lbl.setText(
+                    f"Folder: {candidate}"
+                )
+
+    def _pick_folder(self) -> None:
+        current = (
+            str(self.scan_folder)
+            if self.scan_folder
+            else str(Path.home())
+        )
+
+        folder = QFileDialog.getExistingDirectory(
+            self,
+            "Select Folder to Scan",
+            current,
+        )
+
+        if not folder:
+            return
+
+        selected = Path(folder).resolve()
+
+        if not selected.exists() or not selected.is_dir():
+            self.scan_folder = None
+            self.folder_lbl.setText(
+                "The selected path is not a valid folder."
+            )
             self.completeChanged.emit()
+            return
 
-    def isComplete(self):
-        return os.path.isdir(self.path_input.text())
+        self.scan_folder = selected
+        self.folder_lbl.setText(
+            f"Folder: {selected}"
+        )
+        self.completeChanged.emit()
 
-    def selected_path(self) -> str:
-        return self.path_input.text()
+    def isComplete(self) -> bool:
+        return (
+            self.scan_folder is not None
+            and self.scan_folder.exists()
+            and self.scan_folder.is_dir()
+        )
 
 
 class IndexBuildPage(QWizardPage):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setTitle("Building Search Index")
-        self.setSubTitle("DesktopAI is analyzing your files...")
-        
+    """Page 3: scan files and build the semantic index."""
+
+    def __init__(
+        self,
+        services: ApplicationServices,
+    ) -> None:
+        super().__init__()
+
+        self.setTitle("Build Search Index")
+        self.setSubTitle(
+            "Scan your files and prepare semantic search."
+        )
+
+        self.services = services
+        self.is_built = False
+        self._thread: IndexBuildThread | None = None
+
         layout = QVBoxLayout()
+
+        self.info_lbl = QLabel(
+            "Ready to scan the selected folder and build the search index."
+        )
+        self.info_lbl.setWordWrap(True)
+        layout.addWidget(self.info_lbl)
+
         self.progress_bar = QProgressBar()
         self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
+        self.progress_bar.setTextVisible(True)
+        self.progress_bar.setFormat("%p%")
+        self.progress_bar.setVisible(False)
         layout.addWidget(self.progress_bar)
-        
-        self.status_label = QLabel("Preparing...")
-        layout.addWidget(self.status_label)
-        
+
+        self.build_btn = QPushButton(
+            "Build Index Now"
+        )
+        self.build_btn.clicked.connect(
+            self._build_index
+        )
+        layout.addWidget(self.build_btn)
+
+        layout.addStretch()
         self.setLayout(layout)
-        self.is_finished = False
-        
-    def initializePage(self):
-        self.worker_thread = QThread()
-        self.worker = IndexBuildWorker()
-        self.worker.moveToThread(self.worker_thread)
-        
-        self.worker_thread.started.connect(self.worker.run)
-        self.worker.progress.connect(self.update_progress)
-        self.worker.finished.connect(self.on_finished)
-        self.worker.finished.connect(self.worker_thread.quit)
-        
-        self.worker_thread.start()
 
-    def update_progress(self, value: int):
-        self.progress_bar.setValue(value)
-        self.status_label.setText(f"Processing files... {value}%")
+    def _build_index(self) -> None:
+        if self._thread is not None and self._thread.isRunning():
+            return
 
-    def on_finished(self, success: bool):
-        self.is_finished = True
-        if success:
-            self.status_label.setText("✅ Index built successfully!")
-            self.status_label.setStyleSheet("color: green;")
-        else:
-            self.status_label.setText("❌ Index build failed. Check logs.")
-            self.status_label.setStyleSheet("color: red;")
+        wizard = self.wizard()
+
+        if wizard is None:
+            self._show_error(
+                "Wizard instance is not available."
+            )
+            return
+
+        scan_page = wizard.scan_page
+
+        if scan_page.scan_folder is None:
+            self._show_error(
+                "No scan folder selected."
+            )
+            return
+
+        self.is_built = False
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(0)
+        self.build_btn.setEnabled(False)
+
+        self.info_lbl.setText(
+            f"Preparing: {scan_page.scan_folder}"
+        )
         self.completeChanged.emit()
 
-    def isComplete(self):
-        return self.is_finished
+        self._thread = IndexBuildThread(
+            self.services.file_service,
+            scan_page.scan_folder,
+        )
+
+        self._thread.progress.connect(
+            self._on_progress
+        )
+        self._thread.build_completed.connect(
+            self._on_build_success
+        )
+        self._thread.error.connect(
+            self._on_build_error
+        )
+        self._thread.finished.connect(
+            self._on_thread_finished
+        )
+        self._thread.start()
+
+    def _on_progress(
+        self,
+        value: int,
+        message: str,
+    ) -> None:
+        self.progress_bar.setValue(
+            max(0, min(100, int(value)))
+        )
+        self.info_lbl.setText(message)
+
+    def _on_build_success(
+        self,
+        result: dict,
+    ) -> None:
+        self.is_built = True
+
+        scanned = int(
+            result.get("scanned", 0)
+        )
+        indexed = int(
+            result.get("indexed", 0)
+        )
+
+        self.progress_bar.setValue(100)
+        self.info_lbl.setText(
+            "✓ Setup index completed.\n\n"
+            f"Scanned: {scanned} files\n"
+            f"Indexed: {indexed} files\n\n"
+            "Click Finish to launch DesktopAI."
+        )
+
+        self.build_btn.setEnabled(False)
+        self.completeChanged.emit()
+
+    def _on_build_error(
+        self,
+        error_message: str,
+    ) -> None:
+        self.is_built = False
+        self.progress_bar.setValue(0)
+        self.info_lbl.setText(
+            f"✗ Index build failed:\n\n{error_message}"
+        )
+        self.build_btn.setEnabled(True)
+        self.completeChanged.emit()
+
+    def _on_thread_finished(self) -> None:
+        thread = self._thread
+        self._thread = None
+
+        if thread is not None:
+            thread.deleteLater()
+
+    def _show_error(
+        self,
+        message: str,
+    ) -> None:
+        self.info_lbl.setText(
+            f"✗ {message}"
+        )
+        self.is_built = False
+        self.completeChanged.emit()
+
+    def isComplete(self) -> bool:
+        return self.is_built
 
 
 class SetupWizard(QWizard):
-    finished_successfully = Signal(str)
+    """Main first-run setup wizard."""
 
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle("DesktopAI Setup")
-        self.setWizardStyle(QWizard.ModernStyle)
-        self.resize(600, 400)
+    def __init__(
+        self,
+        services: ApplicationServices,
+        *,
+        allow_offline: bool = False,
+    ) -> None:
+        super().__init__()
 
-        self.page1 = WelcomePage()
-        self.page2 = ScanFolderPage()
-        self.page3 = IndexBuildPage()
+        self.setWindowTitle(
+            "DesktopAI Setup"
+        )
+        self.setMinimumSize(
+            560,
+            440,
+        )
 
-        self.addPage(self.page1)
-        self.addPage(self.page2)
-        self.addPage(self.page3)
+        self.services = services
+        self.allow_offline = allow_offline
 
-    def accept(self):
-        folder = self.page2.selected_path()
-        settings = Settings()
-        settings.app.scan_folder = folder
-        settings.app.first_run = False
-        settings.save()
-        
-        self.finished_successfully.emit(folder)
-        super().accept()
+        self.welcome_page = WelcomePage(
+            allow_offline=allow_offline
+        )
+        self.scan_page = ScanFolderPage()
+        self.index_page = IndexBuildPage(
+            services
+        )
+
+        self.addPage(
+            self.welcome_page
+        )
+        self.addPage(
+            self.scan_page
+        )
+        self.addPage(
+            self.index_page
+        )
+
+        self.finished.connect(
+            self._on_wizard_finished
+        )
+
+    def _on_wizard_finished(
+        self,
+        _result: int,
+    ) -> None:
+        """Persist first-run settings after successful wizard completion."""
+        if not self.index_page.is_built:
+            return
+
+        scan_folder = self.scan_page.scan_folder
+
+        if scan_folder is None:
+            return
+
+        Settings.app.scan_folder = str(
+            scan_folder
+        )
+        Settings.app.first_run = False
+        Settings.save()

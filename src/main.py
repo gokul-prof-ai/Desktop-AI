@@ -85,9 +85,9 @@ def _launch_gui(args) -> int:
     from PySide6.QtWidgets import QApplication
 
     from core.logger import get_logger
+    from gui.dialogs.setup_wizard import SetupWizard
     from gui.theme.app_shell import apply_theme
     from gui.windows.main_window import MainWindow
-    from gui.dialogs.setup_wizard import SetupWizard
     from infrastructure.config.settings import Settings
     from services import ApplicationServices
 
@@ -105,28 +105,39 @@ def _launch_gui(args) -> int:
     )
     apply_theme(app, theme)
 
-    # Composition root: construct application-scoped services once
+    # Application-level services are created once for the whole GUI session.
     services = ApplicationServices()
     services.start()
 
-    # Check if first run
+    # First-run onboarding.
     if Settings.app.first_run:
-        # Show setup wizard
-        wizard = SetupWizard(services)
-        wizard.exec()
-        # Wizard sets first_run=False and saves config
-    
-    # Show main window
+        wizard = SetupWizard(
+            services,
+            allow_offline=args.mock_ai,
+        )
+        result = wizard.exec()
+
+        # If the user closes/cancels setup, do not silently mark first-run
+        # complete. The wizard will appear again on the next launch.
+        if result != SetupWizard.Accepted:
+            logger.warning(
+                "Setup wizard was cancelled. First-run setup remains pending."
+            )
+
     window = MainWindow(services)
     window.show()
 
-    logger.info("DesktopAI GUI launched successfully.")
+    logger.info(
+        "DesktopAI GUI launched successfully."
+    )
 
     return app.exec()
 
 
 def _launch_cli(args) -> int:
-    print(f"{__app_name__} v{__version__}")
+    print(
+        f"{__app_name__} v{__version__}"
+    )
     return 0
 
 
@@ -135,14 +146,23 @@ def main():
     args = parser.parse_args()
 
     from core.logger import configure
-    configure(debug=args.debug)
+
+    configure(
+        debug=args.debug
+    )
 
     from infrastructure.config.settings import Settings
-    Settings.load(config_path=args.config)
 
-    _setup_ai_gateway(args.mock_ai)
+    Settings.load(
+        config_path=args.config
+    )
+
+    _setup_ai_gateway(
+        args.mock_ai
+    )
 
     from infrastructure.storage.database import DB
+
     DB.connect()
 
     try:
@@ -150,15 +170,30 @@ def main():
             exit_code = _launch_cli(args)
         else:
             exit_code = _launch_gui(args)
+
     except Exception:
-        # Force output to stdout to bypass PowerShell stderr swallowing
-        sys.stdout.write("\n" + "="*60 + "\n")
-        sys.stdout.write("FATAL GUI CRASH DETECTED\n")
-        sys.stdout.write("="*60 + "\n")
-        traceback.print_exc(file=sys.stdout)
-        sys.stdout.write("="*60 + "\n\n")
+        sys.stdout.write(
+            "\n"
+            + "=" * 60
+            + "\n"
+        )
+        sys.stdout.write(
+            "FATAL GUI CRASH DETECTED\n"
+        )
+        sys.stdout.write(
+            "=" * 60
+            + "\n"
+        )
+        traceback.print_exc(
+            file=sys.stdout
+        )
+        sys.stdout.write(
+            "=" * 60
+            + "\n\n"
+        )
         sys.stdout.flush()
         exit_code = 1
+
     finally:
         try:
             DB.close()
