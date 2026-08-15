@@ -1,8 +1,9 @@
 [app]
 name = "DesktopAI"
 version = "2.0.0"
-theme = "dark"
-first_run = true
+theme = "light"
+first_run = false
+scan_folder = "D:\\DESKTOP AI V2\\Desktop-AI\\src"
 
 [ai]
 model = "llama3.2"
