@@ -1,12 +1,13 @@
 """
 DesktopAI v2.0 — Application Shell
 File: src/gui/windows/main_window.py
-Navigation shell only. Premium theme, icon system, brand, palette.
+Navigation shell only. Premium theme, icon system, brand, palette,
+boot overlay, sound prefs.
 """
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, QSize
-from PySide6.QtGui import QKeySequence, QShortcut
+from PySide6.QtGui import QColor, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QListWidget, QListWidgetItem, QLabel, QFrame, QPushButton,
@@ -20,6 +21,7 @@ from services import ApplicationServices
 
 from gui.components import icons as I
 from gui.components.animated_stack import AnimatedStackedWidget
+from gui.components.boot_overlay import BootOverlay
 from gui.components.brand import LogoMark, app_icon, ensure_brand_assets
 from gui.components.command_palette import CommandPalette
 from gui.components.toast import ToastManager
@@ -27,6 +29,7 @@ from gui.components.widgets import StatusIndicator
 from gui.theme.premium_theme import apply_premium_theme
 from gui.theme.typography import apply_typography
 from gui.theme.design_tokens import tokens_for
+from gui.utils import sound_prefs
 
 from gui.views.home_view import HomeView
 from gui.views.organize_view import OrganizeView
@@ -65,12 +68,14 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(APP_NAME)
         self.resize(WINDOW_DEFAULT_WIDTH, WINDOW_DEFAULT_HEIGHT)
         self.setMinimumSize(1100, 680)
+        self._boot_overlay = None
 
         self._service = self.services.file_service
         self._service.open()
         db_manager = getattr(self.services, "db_manager", None)
         self._organizer = Organizer(db_manager=db_manager)
 
+        sound_prefs.apply_to(SOUNDS)
         apply_typography(self.application())
         ensure_brand_assets()
         self.setWindowIcon(app_icon())
@@ -83,6 +88,7 @@ class MainWindow(QMainWindow):
 
         self._connect_events()
         self._setup_shortcuts()
+        self._show_boot()
         logger.info("MainWindow ready")
 
     def closeEvent(self, event) -> None:
@@ -92,7 +98,15 @@ class MainWindow(QMainWindow):
             logger.exception("Failed to close application services cleanly.")
         super().closeEvent(event)
 
-    # ── Build ─────────────────────────────────────────────────────
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        if self._boot_overlay is not None:
+            try:
+                self._boot_overlay.setGeometry(self.centralWidget().rect())
+            except RuntimeError:
+                self._boot_overlay = None
+
+    # ── Build ────────────────────────────────────────────────────
     def _build_ui(self) -> None:
         root = QWidget()
         root.setObjectName("Root")
@@ -245,21 +259,29 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.theme_button)
         return bar
 
+    # ── Boot overlay ──────────────────────────────────────────────
+    def _show_boot(self) -> None:
+        overlay = BootOverlay(self.centralWidget())
+        overlay.setGeometry(self.centralWidget().rect())
+        overlay.show()
+        overlay.raise_()
+        self._boot_overlay = overlay
+
     # ── Nav icons ─────────────────────────────────────────────────
     def _refresh_nav_icons(self) -> None:
         t = tokens_for(self.current_theme)
         active = QColor(t["nav_active_text"])
         idle = QColor(t["text_2"])
 
-        def paint(list_widget: QListWidget, offset: int):
+        def paint(list_widget: QListWidget):
             for row in range(list_widget.count()):
                 item = list_widget.item(row)
                 icon_name = item.data(Qt.UserRole)
                 is_active = (list_widget.currentRow() == row)
                 item.setIcon(I.qicon(icon_name, 18, active if is_active else idle))
 
-        paint(self.nav, 0)
-        paint(self.sys_nav, len(_MENU))
+        paint(self.nav)
+        paint(self.sys_nav)
 
     # ── Events ────────────────────────────────────────────────────
     def _connect_events(self) -> None:
@@ -395,6 +417,3 @@ class MainWindow(QMainWindow):
     def application(self):
         from PySide6.QtWidgets import QApplication
         return QApplication.instance()
-
-
-from PySide6.QtGui import QColor  # noqa: E402

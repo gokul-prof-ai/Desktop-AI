@@ -2,7 +2,7 @@
 DesktopAI v2.0 — Settings View (Configuration Center)
 File: src/gui/views/settings_view.py
 Categorized cards: Appearance, AI, Scanning, Sound, Privacy.
-Writes through the Settings service; never crashes on missing keys.
+Sound preferences persist via sound_prefs.
 """
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 from core.logger import get_logger
 from gui.components.widgets import PrimaryButton, SectionHeader, StatusIndicator
 from gui.theme.premium_theme import apply_premium_theme
+from gui.utils import sound_prefs
 from infrastructure.config.settings import Settings
 
 try:
@@ -135,12 +136,11 @@ class SettingsView(QWidget):
 
     def _sound_card(self):
         card, lay = self._card("Sound", "Subtle, quiet feedback. Never annoying.")
+        prefs = sound_prefs.load()
+
         self.sound_enabled = QCheckBox("Sound effects")
-        if SOUNDS:
-            self.sound_enabled.setChecked(SOUNDS.enabled)
-        self.sound_enabled.toggled.connect(
-            lambda on: SOUNDS.set_enabled(on) if SOUNDS else None
-        )
+        self.sound_enabled.setChecked(prefs["enabled"])
+        self.sound_enabled.toggled.connect(self._on_sound_changed)
         lay.addWidget(self.sound_enabled)
 
         vol_row = QHBoxLayout()
@@ -149,9 +149,8 @@ class SettingsView(QWidget):
         vol_row.addWidget(vol_lbl)
         self.volume = QSlider(Qt.Horizontal)
         self.volume.setRange(0, 100)
-        self.volume.setValue(50)
-        if SOUNDS and hasattr(SOUNDS, "set_volume"):
-            self.volume.valueChanged.connect(SOUNDS.set_volume)
+        self.volume.setValue(prefs["volume"])
+        self.volume.valueChanged.connect(self._on_sound_changed)
         vol_row.addWidget(self.volume, 1)
         lay.addLayout(vol_row)
         return card
@@ -165,6 +164,14 @@ class SettingsView(QWidget):
         clear.clicked.connect(self._clear_memory)
         lay.addWidget(clear, 0, Qt.AlignLeft)
         return card
+
+    # ── Sound persistence ─────────────────────────────────────────
+    def _on_sound_changed(self, *args):
+        if SOUNDS:
+            SOUNDS.set_enabled(self.sound_enabled.isChecked())
+            if hasattr(SOUNDS, "set_volume"):
+                SOUNDS.set_volume(self.volume.value())
+        sound_prefs.save(self.sound_enabled.isChecked(), self.volume.value())
 
     # ── Actions ─────────────────────────────────────────────────
     def _apply_theme(self, name: str):
@@ -209,6 +216,7 @@ class SettingsView(QWidget):
             Settings.scanner.skip_system = self.skip_system.isChecked()
             Settings.app.theme = "light" if self.radio_light.isChecked() else "dark"
             Settings.save()
+            sound_prefs.save(self.sound_enabled.isChecked(), self.volume.value())
             self._toast("success", "Settings saved", "Your preferences were written.")
         except Exception as exc:
             self._toast("error", "Save failed", str(exc))
