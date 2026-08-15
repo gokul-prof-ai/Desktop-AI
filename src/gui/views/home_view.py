@@ -6,6 +6,10 @@ Theme-aware dashboard: greeting, live stats, hero drop zone,
 quick actions, recent folders, activity feed, scan progress
 and results. All data comes from FileService (no fake values).
 No emoji — only guaranteed glyphs.
+
+Theme handling: builds its own stylesheet from explicit hex
+tokens and re-applies instantly when the main window theme
+button is clicked (no restart / no page switch needed).
 """
 from __future__ import annotations
 
@@ -32,19 +36,21 @@ _DARK = dict(
     text="#E8E8F0", muted="#8B8BA8", card="#15151D", sub="#1B1B26",
     border="#26263A", accent="#8B5CF6", accent_hover="#7C3AED",
     hero_bg="rgba(139,92,246,0.06)", hero_hover="rgba(139,92,246,0.12)",
-    hero_border="#3A3A55", ok="#34D399", warn="#FBBF24", bad="#F87171",
+    hero_border="#3A3A55",
 )
 _LIGHT = dict(
     text="#17171F", muted="#6B6B80", card="#FFFFFF", sub="#F4F4FA",
     border="#E2E2EC", accent="#7C3AED", accent_hover="#6D28D9",
     hero_bg="rgba(124,58,237,0.05)", hero_hover="rgba(124,58,237,0.10)",
-    hero_border="#C9C9DC", ok="#059669", warn="#B45309", bad="#B91C1C",
+    hero_border="#C9C9DC",
 )
 
 
 def _build_qss(t: dict) -> str:
     """View-scoped stylesheet from explicit tokens (both themes)."""
     return f"""
+    #hvRoot, #hvContent {{ background: transparent; }}
+    QScrollArea#hvScroll {{ background: transparent; border: none; }}
     #hvGreet {{ color: {t['text']}; font-size: 26px; font-weight: 700; }}
     #hvSub {{ color: {t['muted']}; font-size: 13px; }}
     #hvDateChip {{ color: {t['muted']}; background: {t['card']}; border: 1px solid {t['border']};
@@ -187,9 +193,11 @@ class HomeView(QWidget):
 
     def __init__(self, file_service: FileService, parent=None):
         super().__init__(parent)
+        self.setObjectName("hvRoot")
         self.file_service = file_service
         self.vm = HomeViewModel(file_service)
         self._theme = ""
+        self._theme_connected = False
         self._last_folder = ""
         self._index_worker = None
 
@@ -197,13 +205,13 @@ class HomeView(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
 
         self.scroll = QScrollArea()
+        self.scroll.setObjectName("hvScroll")
         self.scroll.setWidgetResizable(True)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.scroll.setFrameShape(QFrame.NoFrame)
-        self.scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
 
         self.content = QWidget()
-        self.content.setStyleSheet("background: transparent;")
+        self.content.setObjectName("hvContent")
         self.layout_main = QVBoxLayout(self.content)
         self.layout_main.setContentsMargins(28, 24, 28, 24)
         self.layout_main.setSpacing(18)
@@ -295,6 +303,7 @@ class HomeView(QWidget):
 
     def _build_bottom_stack(self):
         self.bottom = QStackedWidget()
+        self.bottom.setStyleSheet("background: transparent;")
 
         # Page 0 — idle: recent folders + activity
         idle = QWidget()
@@ -448,8 +457,7 @@ class HomeView(QWidget):
             self.table.setItem(row, 0, QTableWidgetItem(f"{icon_for(filename)}  {filename}"))
             self.table.setItem(row, 1, QTableWidgetItem(r.get("category", "Unknown")))
             conf = r.get("confidence", 0.0)
-            conf_item = QTableWidgetItem(f"{int(conf * 100)}%")
-            self.table.setItem(row, 2, conf_item)
+            self.table.setItem(row, 2, QTableWidgetItem(f"{int(conf * 100)}%"))
             self.table.setItem(row, 3, QTableWidgetItem(self._format_size(r.get("size_bytes", 0))))
         folder = str(Path(results[0]["path"]).parent) if results else self._last_folder
         self.scan_ready.emit(folder, results)
@@ -473,8 +481,9 @@ class HomeView(QWidget):
         self.stat_values["cats"].setText(str(len(stats.get("categories", {}) or {})))
         self.stat_values["sessions"].setText(str(len(stats.get("recent_sessions", []) or [])))
 
-        self._rebuild_folders(stats.get("recent_sessions", []) or [])
-        self._rebuild_activity(stats.get("recent_sessions", []) or [])
+        sessions = stats.get("recent_sessions", []) or []
+        self._rebuild_folders(sessions)
+        self._rebuild_activity(sessions)
 
     def _rebuild_folders(self, sessions: list):
         while self.folders_box.count():
@@ -536,11 +545,19 @@ class HomeView(QWidget):
             return "dark"
 
     def _apply_theme(self):
+        """Re-skin the whole view from explicit tokens (valid QSS only)."""
         self._theme = self._current_theme()
         tokens = _LIGHT if self._theme == "light" else _DARK
-        self.content.setStyleSheet(_build_qss(tokens) + " background: transparent;")
+        self.content.setStyleSheet(_build_qss(tokens))
 
     def showEvent(self, event):
+        # Hook the main window theme button once, so toggling re-skins
+        # this view instantly (no page switch / restart needed).
+        if not self._theme_connected:
+            btn = getattr(self.window(), "theme_button", None)
+            if btn is not None:
+                btn.clicked.connect(self._apply_theme)
+                self._theme_connected = True
         if self._current_theme() != self._theme:
             self._apply_theme()
         super().showEvent(event)
