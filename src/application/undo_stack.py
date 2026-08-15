@@ -21,7 +21,7 @@ from collections import deque
 from pathlib import Path
 from typing import Optional
 
-from domain.organizer.action import ActionItem, ActionPlan, ActionStatus, ActionType
+from application.action import ActionItem, ActionPlan, ActionStatus, ActionType
 
 logger = logging.getLogger(__name__)
 

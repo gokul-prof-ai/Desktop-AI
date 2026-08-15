@@ -33,10 +33,10 @@ from typing import Optional, Sequence
 
 from PySide6.QtCore import QObject, Signal
 
-from domain.organizer.action import ActionItem, ActionPlan, ActionStatus, ActionType
-from domain.organizer.planner import Planner
-from domain.organizer.undo_stack import UndoStack, UndoError
-from domain.scanner.file_info import FileInfo
+from application.action import ActionItem, ActionPlan, ActionStatus, ActionType
+from application.planner import Planner
+from application.undo_stack import UndoStack, UndoError
+from domain.models import FileInfo
 
 logger = logging.getLogger(__name__)
 

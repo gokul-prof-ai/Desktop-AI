@@ -38,8 +38,8 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Optional, Sequence
 
-from domain.organizer.action import ActionItem, ActionPlan, ActionType
-from domain.scanner.file_info import FileInfo
+from application.action import ActionItem, ActionPlan, ActionType
+from domain.models import FileInfo          # your existing FileInfo frozen dataclass
 
 logger = logging.getLogger(__name__)
 

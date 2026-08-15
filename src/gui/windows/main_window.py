@@ -24,6 +24,7 @@ from gui.components.animated_stack import AnimatedStackedWidget
 from infrastructure.config.settings import Settings
 from core.logger import get_logger
 from services import ApplicationServices
+from application.organizer import Organizer
 
 logger = get_logger(__name__)
 
@@ -54,6 +55,10 @@ class MainWindow(QMainWindow):
         # into the shell. The shell only consumes them and owns their shutdown.
         self._service = self.services.file_service
         self._service.open()
+
+        # Shared Organizer — owns the undo stack and DB history writes
+        db_manager = getattr(self.services, "db_manager", None)
+        self._organizer = Organizer(db_manager=db_manager)
 
         self._build_ui()
         self._connect_events()
@@ -189,7 +194,7 @@ class MainWindow(QMainWindow):
         # Views
         self.stack = AnimatedStackedWidget()
         self.home_view     = HomeView(self._service)
-        self.organize_view = OrganizeView(self._service)
+        self.organize_view = OrganizeView(self._organizer)
         self.search_view   = SearchView(self._service)
         self.chat_view     = ChatView()
         self.history_view  = HistoryView()
@@ -237,6 +242,8 @@ class MainWindow(QMainWindow):
         self.nav.currentRowChanged.connect(self._on_nav_changed)
         self.theme_button.clicked.connect(self._toggle_theme)
         self.home_view.scan_ready.connect(self._on_scan_ready)
+        # After apply/undo, HistoryView refreshes automatically
+        self.organize_view.history_changed.connect(self.history_view.refresh)
 
     def _on_nav_changed(self, index: int) -> None:
         if not (0 <= index < len(self.sections)):
@@ -245,41 +252,51 @@ class MainWindow(QMainWindow):
         self.page_title.setText(self.sections[index])
 
     def _on_scan_ready(self, scan_path: str, results: list) -> None:
-        """Broadcast completed scan results to views that can use them."""
+        """
+        Broadcast completed scan results to all consumer views.
+
+        HomeView emits scan_ready(scan_path: str, results: list).
+        results may be FileInfo objects (new domain layer) or plain dicts
+        (legacy FileService path) — each view handles its own type.
+        """
         self._broadcast_scan_context(scan_path, results)
 
     def _broadcast_scan_context(self, scan_path: str, results: list) -> None:
         """Forward scan results to every view that supports them."""
-        targets: list[tuple[object, str, str]] = [
-            (self.organize_view, "set_scan_context", "OrganizeView"),
-            (self.search_view,   "set_scan_context", "SearchView"),
-            (self.chat_view,     "set_scan_context", "ChatView"),
-            (self.history_view,  "refresh",          "HistoryView"),
-        ]
+        from pathlib import Path as _Path
 
-        for view, method_name, view_name in targets:
+        # ── OrganizeView: needs (Path, list[FileInfo]) ────────────────────────
+        try:
+            self.organize_view.set_scan_context(_Path(scan_path), results)
+        except Exception as exc:
+            logger.warning("OrganizeView.set_scan_context() raised %s: %s",
+                           type(exc).__name__, exc)
+
+        # ── SearchView / ChatView: still use (str, list) legacy signature ─────
+        for view, method_name, view_name in [
+            (self.search_view, "set_scan_context", "SearchView"),
+            (self.chat_view,   "set_scan_context", "ChatView"),
+        ]:
             fn = getattr(view, method_name, None)
             if not callable(fn):
-                logger.debug(
-                    "%s.%s() not yet implemented — skipping scan broadcast.",
-                    view_name, method_name,
-                )
+                logger.debug("%s.%s() not implemented — skipping.", view_name, method_name)
                 continue
-
             try:
-                if method_name == "refresh":
-                    fn()
-                else:
-                    fn(scan_path, results)
+                fn(scan_path, results)
             except Exception as exc:
-                logger.warning(
-                    "%s.%s() raised %s: %s",
-                    view_name, method_name, type(exc).__name__, exc,
-                )
+                logger.warning("%s.%s() raised %s: %s",
+                               view_name, method_name, type(exc).__name__, exc)
+
+        # ── HistoryView refreshes on its own after apply via history_changed ──
+        # But also refresh on every new scan so stale rows are cleared.
+        try:
+            self.history_view.refresh()
+        except Exception as exc:
+            logger.debug("HistoryView.refresh() raised %s: %s", type(exc).__name__, exc)
 
         logger.info(
-            "Scan context broadcast to %d views (path=%s, %d results).",
-            len(targets), scan_path, len(results or []),
+            "Scan context broadcast complete (path=%s, %d results).",
+            scan_path, len(results or []),
         )
 
     # ── Shortcuts ──────────────────────────────────────────────────
