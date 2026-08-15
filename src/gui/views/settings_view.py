@@ -1,227 +1,219 @@
 """
-DesktopAI v2.0 — Settings View
+DesktopAI v2.0 — Settings View (Configuration Center)
 File: src/gui/views/settings_view.py
+Categorized cards: Appearance, AI, Scanning, Sound, Privacy.
+Writes through the Settings service; never crashes on missing keys.
 """
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QFrame, QPushButton, QComboBox, QScrollArea,
-    QCheckBox, QSizePolicy,
+    QButtonGroup, QCheckBox, QComboBox, QFrame, QHBoxLayout, QLabel,
+    QMessageBox, QRadioButton, QScrollArea, QSlider, QVBoxLayout, QWidget,
 )
 
+from core.logger import get_logger
+from gui.components.widgets import PrimaryButton, SectionHeader, StatusIndicator
+from gui.theme.premium_theme import apply_premium_theme
 from infrastructure.config.settings import Settings
-from core.constants import APP_NAME, APP_VERSION
+
+try:
+    from gui.utils.sounds import SOUNDS
+except Exception:
+    SOUNDS = None
+
+logger = get_logger(__name__)
 
 
 class SettingsView(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
 
-    def __init__(self) -> None:
-        super().__init__()
-        self._build_ui()
-
-    def _build_ui(self) -> None:
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
-
-        sub = QLabel("Configure AI models, scanner behaviour, appearance, and privacy.")
-        sub.setObjectName("Muted")
-        layout.addWidget(sub)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setStyleSheet("background: transparent; border: none;")
-
-        inner = QWidget()
-        inner.setStyleSheet("background: transparent;")
-        il = QVBoxLayout(inner)
-        il.setContentsMargins(0, 0, 8, 0)
-        il.setSpacing(12)
-
-        il.addWidget(self._section_ai())
-        il.addWidget(self._section_scanner())
-        il.addWidget(self._section_appearance())
-        il.addWidget(self._section_privacy())
-        il.addWidget(self._section_about())
-        il.addStretch()
-
-        scroll.setWidget(inner)
-        layout.addWidget(scroll, 1)
-
-    # ── Sections ───────────────────────────────────────────────────
-
-    def _section_ai(self) -> QFrame:
-        card, body = self._card("AI & Intelligence")
-        body.addWidget(self._row("AI Provider",  right=self._combo(["Ollama (Local)", "Mock AI"])))
-        body.addWidget(self._sep())
-        body.addWidget(self._row("Model",        right=self._combo(["llama3.2", "llama3.2:1b", "mistral", "gemma2"], Settings.ai.model)))
-        body.addWidget(self._sep())
-        body.addWidget(self._row("Fast Model",   right=self._combo(["llama3.2:1b", "llama3.2"], Settings.ai.model_fast)))
-        body.addWidget(self._sep())
-        body.addWidget(self._row("Ollama Host",  value=Settings.ai.host))
-        body.addWidget(self._sep())
-        body.addWidget(self._row("Timeout",      value=f"{Settings.ai.timeout}s"))
-        body.addWidget(self._sep())
-        body.addWidget(self._row("Max Retries",  value=str(Settings.ai.max_retries)))
-        return card
-
-    def _section_scanner(self) -> QFrame:
-        card, body = self._card("Scanning")
-        body.addWidget(self._row("Max Depth",       value=str(Settings.scanner.max_depth)))
-        body.addWidget(self._sep())
-        body.addWidget(self._row("Workers",          value=str(Settings.scanner.max_workers)))
-        body.addWidget(self._sep())
-        body.addWidget(self._row("Skip Hidden",      right=self._toggle(Settings.scanner.skip_hidden)))
-        body.addWidget(self._sep())
-        body.addWidget(self._row("Skip System",      right=self._toggle(Settings.scanner.skip_system)))
-        body.addWidget(self._sep())
-        body.addWidget(self._row("OCR Enabled",      right=self._toggle(Settings.ocr.enabled)))
-        body.addWidget(self._sep())
-        body.addWidget(self._row("OCR Engine",       value=Settings.ocr.engine))
-        body.addWidget(self._sep())
-        body.addWidget(self._row("Categories",       value=f"{len(Settings.categories)} rules"))
-        return card
-
-    def _section_appearance(self) -> QFrame:
-        card, body = self._card("Appearance")
-        body.addWidget(self._row("Theme", right=self._combo(
-            ["Dark", "Light"],
-            "Dark" if Settings.app.theme == "dark" else "Light"
-        )))
-        body.addWidget(self._sep())
-        body.addWidget(self._row("Embedding Model",   value=Settings.search.embedding_model))
-        body.addWidget(self._sep())
-        body.addWidget(self._row("Max Search Results", value=str(Settings.search.max_results)))
-        return card
-
-    def _section_privacy(self) -> QFrame:
-        card, body = self._card("Privacy & Data")
-        body.addWidget(self._row(
-            "Local Processing Only",
-            right=self._toggle(True),
-            note="All AI runs on your device. No data leaves your machine.",
-        ))
-        body.addWidget(self._sep())
-        body.addWidget(self._row("Database", value=Settings.storage.db_filename))
-        body.addWidget(self._sep())
-        clear_btn = QPushButton("Clear All Data")
-        clear_btn.setObjectName("DangerButton")
-        clear_btn.setFixedWidth(140)
-        body.addWidget(self._row("Reset", right=clear_btn))
-        return card
-
-    def _section_about(self) -> QFrame:
-        card, body = self._card("About")
-        body.addWidget(self._row("Application", value=APP_NAME))
-        body.addWidget(self._sep())
-        body.addWidget(self._row("Version",     value=f"v{APP_VERSION}"))
-        body.addWidget(self._sep())
-        body.addWidget(self._row("Architecture", value="4-layer clean arch"))
-        body.addWidget(self._sep())
-        body.addWidget(self._row("AI Stack",    value="Ollama · FAISS · PySide6"))
-        body.addWidget(self._sep())
-        body.addWidget(self._row("Python",      value="3.14+"))
-        return card
-
-    # ── Helpers ────────────────────────────────────────────────────
-
-    def _card(self, title: str) -> tuple[QFrame, QVBoxLayout]:
-        """Return (card_frame, body_layout)."""
-        card = QFrame()
-        card.setObjectName("Card")
-
-        outer = QVBoxLayout(card)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
-
-        # Section header bar
-        header = QWidget()
-        header.setFixedHeight(42)
-        h_layout = QHBoxLayout(header)
-        h_layout.setContentsMargins(18, 0, 18, 0)
-
-        lbl = QLabel(title)
-        lbl.setObjectName("SubHeading")
-        h_layout.addWidget(lbl)
-
-        outer.addWidget(header)
-
-        # Header separator
-        sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
-        sep.setFixedHeight(1)
-        sep.setObjectName("HRule")
-        outer.addWidget(sep)
-
-        # Body
-        body_widget = QWidget()
-        body_widget.setStyleSheet("background: transparent;")
-        body_layout = QVBoxLayout(body_widget)
-        body_layout.setContentsMargins(18, 4, 18, 12)
-        body_layout.setSpacing(0)
-
-        outer.addWidget(body_widget)
-
-        return card, body_layout
-
-    def _sep(self) -> QFrame:
-        sep = QFrame()
-        sep.setFrameShape(QFrame.HLine)
-        sep.setFixedHeight(1)
-        sep.setObjectName("HRule")
-        return sep
-
-    def _row(
-        self,
-        label: str,
-        value: str = "",
-        right: QWidget | None = None,
-        note: str = "",
-    ) -> QWidget:
-        row = QWidget()
-        row.setStyleSheet("background: transparent;")
-        row.setFixedHeight(52 if note else 44)
-
-        layout = QHBoxLayout(row)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setFrameShape(QScrollArea.NoFrame)
+        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        content = QWidget()
+        content.setStyleSheet("background: transparent;")
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(16)
 
-        # Label column — use objectName so QSS handles color
-        col = QVBoxLayout()
-        col.setSpacing(1)
+        layout.addWidget(SectionHeader("Settings", "Tune DesktopAI to your workflow."))
 
-        lbl = QLabel(label)
-        lbl.setObjectName("SettingsLabel")
-        col.addWidget(lbl)
+        layout.addWidget(self._appearance_card())
+        layout.addWidget(self._ai_card())
+        layout.addWidget(self._scanning_card())
+        layout.addWidget(self._sound_card())
+        layout.addWidget(self._privacy_card())
 
-        if note:
-            note_lbl = QLabel(note)
-            note_lbl.setObjectName("Caption")
-            col.addWidget(note_lbl)
-
-        layout.addLayout(col)
+        save_row = QHBoxLayout()
+        save_row.addStretch()
+        save = PrimaryButton("Save Settings")
+        save.clicked.connect(self._save)
+        save_row.addWidget(save)
+        layout.addLayout(save_row)
         layout.addStretch()
 
-        if right:
-            layout.addWidget(right)
-        elif value:
-            val = QLabel(value)
-            val.setObjectName("SettingsValue")
-            layout.addWidget(val)
+        scroll.setWidget(content)
+        outer.addWidget(scroll)
 
-        return row
+    # ── Cards ────────────────────────────────────────────────────
+    def _card(self, title: str, desc: str):
+        card = QFrame()
+        card.setObjectName("daCard")
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(20, 16, 20, 16)
+        lay.setSpacing(12)
+        t = QLabel(title)
+        t.setObjectName("daSectionTitle")
+        lay.addWidget(t)
+        d = QLabel(desc)
+        d.setObjectName("daSectionSub")
+        lay.addWidget(d)
+        return card, lay
 
-    def _combo(self, items: list, current: str = "") -> QComboBox:
-        combo = QComboBox()
-        combo.addItems(items)
-        if current and current in items:
-            combo.setCurrentText(current)
-        combo.setFixedWidth(160)
-        return combo
+    def _appearance_card(self):
+        card, lay = self._card("Appearance", "Theme applies instantly and persists.")
+        row = QHBoxLayout()
+        self.theme_group = QButtonGroup(self)
+        self.radio_light = QRadioButton("Light")
+        self.radio_dark = QRadioButton("Dark")
+        self.theme_group.addButton(self.radio_light)
+        self.theme_group.addButton(self.radio_dark)
+        current = getattr(Settings.app, "theme", "dark")
+        self.radio_light.setChecked(current == "light")
+        self.radio_dark.setChecked(current != "light")
+        row.addWidget(self.radio_light)
+        row.addWidget(self.radio_dark)
+        row.addStretch()
+        lay.addLayout(row)
+        self.radio_light.toggled.connect(lambda on: on and self._apply_theme("light"))
+        self.radio_dark.toggled.connect(lambda on: on and self._apply_theme("dark"))
+        return card
 
-    def _toggle(self, checked: bool) -> QCheckBox:
-        cb = QCheckBox()
-        cb.setChecked(checked)
-        return cb
+    def _ai_card(self):
+        card, lay = self._card("Local AI", "DesktopAI runs models on your device.")
+        status_row = QHBoxLayout()
+        self.ai_status = StatusIndicator("Checking…", "info")
+        status_row.addWidget(self.ai_status)
+        status_row.addStretch()
+        lay.addLayout(status_row)
+
+        model_row = QHBoxLayout()
+        lbl = QLabel("Model")
+        lbl.setObjectName("daSectionSub")
+        model_row.addWidget(lbl)
+        model_row.addStretch()
+        self.model_combo = QComboBox()
+        self.model_combo.addItems(["llama3.2", "llama3.2:1b", "mistral", "codellama"])
+        try:
+            self.model_combo.setCurrentText(Settings.ai.model)
+        except Exception:
+            pass
+        model_row.addWidget(self.model_combo)
+        lay.addLayout(model_row)
+        self._refresh_ai_status()
+        return card
+
+    def _scanning_card(self):
+        card, lay = self._card("Scanning", "Control what the scanner sees.")
+        self.skip_hidden = QCheckBox("Skip hidden files and folders")
+        self.skip_system = QCheckBox("Skip system files")
+        try:
+            self.skip_hidden.setChecked(Settings.scanner.skip_hidden)
+            self.skip_system.setChecked(Settings.scanner.skip_system)
+        except Exception:
+            pass
+        lay.addWidget(self.skip_hidden)
+        lay.addWidget(self.skip_system)
+        return card
+
+    def _sound_card(self):
+        card, lay = self._card("Sound", "Subtle, quiet feedback. Never annoying.")
+        self.sound_enabled = QCheckBox("Sound effects")
+        if SOUNDS:
+            self.sound_enabled.setChecked(SOUNDS.enabled)
+        self.sound_enabled.toggled.connect(
+            lambda on: SOUNDS.set_enabled(on) if SOUNDS else None
+        )
+        lay.addWidget(self.sound_enabled)
+
+        vol_row = QHBoxLayout()
+        vol_lbl = QLabel("Volume")
+        vol_lbl.setObjectName("daSectionSub")
+        vol_row.addWidget(vol_lbl)
+        self.volume = QSlider(Qt.Horizontal)
+        self.volume.setRange(0, 100)
+        self.volume.setValue(50)
+        if SOUNDS and hasattr(SOUNDS, "set_volume"):
+            self.volume.valueChanged.connect(SOUNDS.set_volume)
+        vol_row.addWidget(self.volume, 1)
+        lay.addLayout(vol_row)
+        return card
+
+    def _privacy_card(self):
+        card, lay = self._card("Privacy", "Your files never leave this computer.")
+        note = QLabel("Local • Private — all analysis runs on-device.")
+        note.setObjectName("daProgressText")
+        lay.addWidget(note)
+        clear = PrimaryButton("Clear Learned Preferences")
+        clear.clicked.connect(self._clear_memory)
+        lay.addWidget(clear, 0, Qt.AlignLeft)
+        return card
+
+    # ── Actions ─────────────────────────────────────────────────
+    def _apply_theme(self, name: str):
+        from PySide6.QtWidgets import QApplication
+        apply_premium_theme(QApplication.instance(), name)
+        fn = getattr(self.window(), "_update_theme_button", None)
+        if callable(fn):
+            self.window().current_theme = name
+            fn()
+
+    def _refresh_ai_status(self):
+        try:
+            from infrastructure.ai.gateway import AIGateway
+            provider = type(getattr(AIGateway, "_provider", None)).__name__
+            if "Mock" in provider:
+                self.ai_status.set_status("Mock AI (testing mode)", "warn")
+            elif AIGateway.health_check():
+                self.ai_status.set_status("Connected", "ok")
+            else:
+                self.ai_status.set_status("Local AI not reachable", "err")
+        except Exception:
+            self.ai_status.set_status("AI status unknown", "warn")
+
+    def _clear_memory(self):
+        answer = QMessageBox.question(
+            self, "Clear preferences",
+            "This removes learned folder preferences. Continue?",
+        )
+        if answer != QMessageBox.Yes:
+            return
+        try:
+            from infrastructure.storage.memory_store import MemoryStore
+            MemoryStore.clear_all()
+            self._toast("success", "Preferences cleared", "Learning reset.")
+        except Exception as exc:
+            self._toast("error", "Could not clear preferences", str(exc))
+
+    def _save(self):
+        try:
+            Settings.ai.model = self.model_combo.currentText()
+            Settings.scanner.skip_hidden = self.skip_hidden.isChecked()
+            Settings.scanner.skip_system = self.skip_system.isChecked()
+            Settings.app.theme = "light" if self.radio_light.isChecked() else "dark"
+            Settings.save()
+            self._toast("success", "Settings saved", "Your preferences were written.")
+        except Exception as exc:
+            self._toast("error", "Save failed", str(exc))
+
+    def _toast(self, kind: str, title: str, msg: str):
+        toasts = getattr(self.window(), "toasts", None)
+        if toasts:
+            getattr(toasts, f"show_{kind}")(title, msg)

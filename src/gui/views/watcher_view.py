@@ -1,116 +1,143 @@
 """
-DesktopAI v2.0
-Watcher workspace.
-
-Start/stop the FolderWatcher and see new files appear in real time.
+DesktopAI v2.0 — Watcher View (Monitoring Status)
+File: src/gui/views/watcher_view.py
+Communicates real watcher state; enable/disable with feedback.
 """
 from __future__ import annotations
 
-import time
-from pathlib import Path
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
-from PySide6.QtCore import Qt, QMetaObject, Q_ARG
-from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QPushButton, QListWidget, QFrame,
+from core.logger import get_logger
+from gui.components.widgets import (
+    PrimaryButton, SecondaryButton, SectionHeader, StatusIndicator,
 )
 
-from core import config
+logger = get_logger(__name__)
 
 
 class WatcherView(QWidget):
-
-    def __init__(self):
-        super().__init__()
-        self._watcher = None
+    def __init__(self, watcher_service=None, parent=None):
+        super().__init__(parent)
+        self.service = watcher_service
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(14)
+        layout.setSpacing(16)
 
-        # Info
-        info = QLabel(
-            "Monitor folders for new files in real time.\n"
-            "Default folders: Downloads and Desktop.\n"
-            "Override via DESKTOP_AI_WATCH_FOLDERS env var (colon-separated)."
+        layout.addWidget(SectionHeader(
+            "Folder Watcher",
+            "Automatically monitor selected folders for changes.",
+        ))
+
+        hero = QFrame()
+        hero.setObjectName("daCard")
+        hero.setMinimumHeight(120)
+        hl = QVBoxLayout(hero)
+        hl.setContentsMargins(20, 18, 20, 18)
+        hl.setSpacing(10)
+
+        self.status = StatusIndicator("Checking…", "info")
+        hl.addWidget(self.status)
+
+        self.folders_label = QLabel("")
+        self.folders_label.setObjectName("daSectionSub")
+        hl.addWidget(self.folders_label)
+
+        btn_row = QHBoxLayout()
+        self.toggle_btn = PrimaryButton("Enable Watcher")
+        self.toggle_btn.clicked.connect(self._toggle)
+        btn_row.addWidget(self.toggle_btn)
+        btn_row.addStretch()
+        hl.addLayout(btn_row)
+        layout.addWidget(hero)
+
+        watched = QFrame()
+        watched.setObjectName("daCard")
+        wl = QVBoxLayout(watched)
+        wl.setContentsMargins(20, 16, 20, 16)
+        wl.setSpacing(8)
+        wt = QLabel("Monitored folders")
+        wt.setObjectName("daSectionTitle")
+        wl.addWidget(wt)
+        self.folders_box = QVBoxLayout()
+        self.folders_box.setSpacing(6)
+        wl.addLayout(self.folders_box)
+        wl.addStretch()
+        layout.addWidget(watched, 1)
+
+        self._reload()
+
+    # ── State ────────────────────────────────────────────────────
+    def _running(self) -> bool:
+        if self.service is None:
+            return False
+        for attr in ("is_running", "running", "started"):
+            val = getattr(self.service, attr, None)
+            if callable(val):
+                try:
+                    return bool(val())
+                except Exception:
+                    continue
+            if val is not None:
+                return bool(val)
+        return False
+
+    def _folders(self) -> list:
+        try:
+            from infrastructure.config.settings import Settings
+            val = getattr(getattr(Settings, "watcher", None), "folders", None)
+            if val:
+                return [str(f) for f in val]
+        except Exception:
+            pass
+        try:
+            from core.constants import WATCH_FOLDERS
+            return [str(f) for f in WATCH_FOLDERS]
+        except Exception:
+            return []
+
+    def _reload(self):
+        running = self._running()
+        if running:
+            self.status.set_status("Watching", "ok")
+            self.toggle_btn.setText("Pause Watcher")
+        else:
+            self.status.set_status("Watcher inactive", "warn")
+            self.toggle_btn.setText("Enable Watcher")
+
+        folders = self._folders()
+        self.folders_label.setText(
+            f"{len(folders)} folders monitored" if running else
+            "Enable automatic monitoring to keep your library current."
         )
-        info.setObjectName("PageSubtitle")
-        info.setWordWrap(True)
-        layout.addWidget(info)
 
-        # Controls
-        ctrl_row = QHBoxLayout()
-        self.btn_toggle = QPushButton("▶  Start Watcher")
-        self.btn_toggle.setObjectName("PrimaryButton")
-        self.btn_toggle.clicked.connect(self._toggle)
-        self.status_label = QLabel("Status: Stopped")
-        self.status_label.setStyleSheet("color: #EF4444; font-weight: 600;")
-        ctrl_row.addWidget(self.btn_toggle)
-        ctrl_row.addWidget(self.status_label)
-        ctrl_row.addStretch()
-
-        btn_clear = QPushButton("Clear Log")
-        btn_clear.setObjectName("SecondaryButton")
-        btn_clear.clicked.connect(self._clear)
-        ctrl_row.addWidget(btn_clear)
-        layout.addLayout(ctrl_row)
-
-        # Watched folders display
-        folders_text = "  •  ".join(str(f) for f in config.WATCH_FOLDERS)
-        self.folders_label = QLabel(f"Watching: {folders_text}")
-        self.folders_label.setStyleSheet("color: #71717A; font-size: 12px;")
-        self.folders_label.setWordWrap(True)
-        layout.addWidget(self.folders_label)
-
-        # Log card
-        card = QFrame()
-        card.setObjectName("Card")
-        card_layout = QVBoxLayout(card)
-
-        log_header = QLabel("Detected files")
-        log_header.setStyleSheet("font-weight: 600; color: #A1A1AA;")
-        card_layout.addWidget(log_header)
-
-        self.log_list = QListWidget()
-        card_layout.addWidget(self.log_list)
-        layout.addWidget(card, 1)
-
-    # ── Slots ─────────────────────────────────────────────────────────
+        while self.folders_box.count():
+            item = self.folders_box.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        if not folders:
+            none = QLabel("No folders configured yet.")
+            none.setObjectName("daProgressText")
+            self.folders_box.addWidget(none)
+        for f in folders:
+            row = QLabel(f"◦  {f}")
+            row.setObjectName("daProgressText")
+            self.folders_box.addWidget(row)
 
     def _toggle(self):
-        if self._watcher is None or not self._watcher._started:
-            self._start()
-        else:
-            self._stop()
+        try:
+            if self._running():
+                self.service.stop()
+                self._toast("info", "Watcher paused", "Monitoring stopped.")
+            else:
+                self.service.start()
+                self._toast("success", "Watcher enabled", "Monitoring your folders.")
+        except Exception as exc:
+            self._toast("error", "Watcher failed", str(exc))
+        self._reload()
 
-    def _start(self):
-        from watcher.watcher import FolderWatcher
-        self._watcher = FolderWatcher(on_new_file=self._on_new_file)
-        self._watcher.start()
-        self.btn_toggle.setText("⏹  Stop Watcher")
-        self.status_label.setText("Status: Running ✅")
-        self.status_label.setStyleSheet("color: #10B981; font-weight: 600;")
-
-    def _stop(self):
-        if self._watcher:
-            self._watcher.stop()
-            self._watcher = None
-        self.btn_toggle.setText("▶  Start Watcher")
-        self.status_label.setText("Status: Stopped")
-        self.status_label.setStyleSheet("color: #EF4444; font-weight: 600;")
-
-    def _on_new_file(self, path: Path):
-        """Called from watcher background thread — must be thread-safe."""
-        text = f"[{time.strftime('%H:%M:%S')}]  {path}"
-        QMetaObject.invokeMethod(
-            self.log_list, "addItem",
-            Qt.ConnectionType.QueuedConnection,
-            Q_ARG(str, text),
-        )
-
-    def _clear(self):
-        self.log_list.clear()
-
-    def closeEvent(self, event):
-        self._stop()
-        super().closeEvent(event)
+    def _toast(self, kind: str, title: str, msg: str):
+        toasts = getattr(self.window(), "toasts", None)
+        if toasts:
+            getattr(toasts, f"show_{kind}")(title, msg)

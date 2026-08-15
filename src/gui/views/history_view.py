@@ -1,192 +1,184 @@
 """
-DesktopAI v2.0 — History View (Activity Center)
+DesktopAI v2.0 — History View (Activity Timeline)
 File: src/gui/views/history_view.py
-
-Wired to DB.get_history() — shows a live audit trail of every
-file operation DesktopAI has performed, with stats and auto-refresh.
+Day-grouped audit timeline with status icons and batch undo.
 """
 from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QColor
+from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QFrame, QPushButton, QTableWidget, QTableWidgetItem,
-    QHeaderView,
+    QFrame, QHBoxLayout, QLabel, QScrollArea, QVBoxLayout, QWidget,
 )
 
-from infrastructure.storage.database import DB
 from core.logger import get_logger
+from gui.components import icons as I
+from gui.components.widgets import (
+    CategoryBadge, EmptyState, SecondaryButton, SectionHeader,
+)
+from services import FileService
 
 logger = get_logger(__name__)
 
-_STATUS_ICONS = {
-    "completed": ("✓", "#30D158"),
-    "failed":    ("✕", "#FF453A"),
-    "undone":    ("↶", "#FFD60A"),
+_STATUS_ICON = {
+    "completed": ("success", "ok"),
+    "undone": ("undo", "warn"),
+    "failed": ("error", "err"),
 }
 
 
-class HistoryView(QWidget):
+class _HistoryWorker(QThread):
+    loaded = Signal(list)
+    failed = Signal(str)
 
-    def __init__(self) -> None:
-        super().__init__()
-        self._build_ui()
-        # Auto-refresh whenever the organizer emits global events
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+    def run(self):
         try:
-            from core.events import AppEvents
-            AppEvents.apply_completed.connect(self.refresh)
-            AppEvents.undo_completed.connect(self.refresh)
-            AppEvents.apply_failed.connect(self.refresh)
+            from infrastructure.storage.database import DB
+            self.loaded.emit([dict(r) for r in DB.get_history(limit=200)])
         except Exception as exc:
-            logger.debug("Could not connect AppEvents in HistoryView: %s", exc)
+            self.failed.emit(str(exc))
+
+
+class _UndoWorker(QThread):
+    done = Signal(dict)
+    failed = Signal(str)
+
+    def __init__(self, service: FileService, parent=None):
+        super().__init__(parent)
+        self._service = service
+
+    def run(self):
+        try:
+            self.done.emit(self._service.undo_last())
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+
+class HistoryView(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.service = FileService()
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(14)
+
+        header = SectionHeader(
+            "History",
+            "Everything DesktopAI has done, with undo.",
+        )
+        self.undo_btn = SecondaryButton("Undo Last Batch")
+        self.undo_btn.clicked.connect(self._start_undo)
+        header.add_action(self.undo_btn)
+        layout.addWidget(header)
+
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll.setFrameShape(QScrollArea.NoFrame)
+        self.scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
+        self.content = QWidget()
+        self.content.setStyleSheet("background: transparent;")
+        self.flow = QVBoxLayout(self.content)
+        self.flow.setSpacing(8)
+        self.flow.addStretch()
+        self.scroll.setWidget(self.content)
+        layout.addWidget(self.scroll, 1)
 
         self.refresh()
 
-    # ── UI construction ────────────────────────────────────────────
+    # ── Data ─────────────────────────────────────────────────────
+    def refresh(self) -> None:
+        self._worker = _HistoryWorker()
+        self._worker.loaded.connect(self._render)
+        self._worker.failed.connect(self._on_failed)
+        self._worker.start()
 
-    def _build_ui(self) -> None:
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(12)
+    def _on_failed(self, message: str):
+        self._clear()
+        empty = EmptyState("We couldn't load your history.", message)
+        self.flow.insertWidget(0, empty)
 
-        sub = QLabel(
-            "A complete audit trail of every file operation DesktopAI has performed."
-        )
-        sub.setObjectName("Muted")
-        layout.addWidget(sub)
-
-        # ── Stat row ───────────────────────────────────────────────
-        row = QHBoxLayout()
-        row.setSpacing(12)
-        self._stat_total   = self._stat_card("Total Operations", "0")
-        self._stat_success = self._stat_card("Successful", "0")
-        self._stat_undone  = self._stat_card("Undone", "0")
-        row.addWidget(self._stat_total,   1)
-        row.addWidget(self._stat_success, 1)
-        row.addWidget(self._stat_undone,  1)
-        layout.addLayout(row)
-
-        # ── Toolbar ────────────────────────────────────────────────
-        toolbar = QHBoxLayout()
-        toolbar.setSpacing(8)
-        title = QLabel("Activity Log")
-        title.setObjectName("SubHeading")
-        toolbar.addWidget(title)
-        toolbar.addStretch()
-        refresh_btn = QPushButton("↻  Refresh")
-        refresh_btn.setObjectName("SecondaryButton")
-        refresh_btn.clicked.connect(self.refresh)
-        toolbar.addWidget(refresh_btn)
-        layout.addLayout(toolbar)
-
-        # ── Table card ─────────────────────────────────────────────
-        card = QFrame()
-        card.setObjectName("Card")
-        c_layout = QVBoxLayout(card)
-        c_layout.setContentsMargins(0, 0, 0, 0)
-
-        self._table = QTableWidget()
-        self._table.setColumnCount(6)
-        self._table.setHorizontalHeaderLabels(
-            ["Status", "Action", "File", "Category", "Destination", "When"]
-        )
-        self._table.setAlternatingRowColors(True)
-        self._table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self._table.setSelectionBehavior(QTableWidget.SelectRows)
-        self._table.setShowGrid(False)
-        self._table.verticalHeader().setVisible(False)
-
-        hdr = self._table.horizontalHeader()
-        hdr.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        hdr.setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        hdr.setSectionResizeMode(2, QHeaderView.Stretch)
-        hdr.setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        hdr.setSectionResizeMode(4, QHeaderView.ResizeToContents)
-        hdr.setSectionResizeMode(5, QHeaderView.ResizeToContents)
-
-        c_layout.addWidget(self._table)
-        layout.addWidget(card, 1)
-
-        # ── Empty state ────────────────────────────────────────────
-        self._empty = QLabel(
-            "No history yet. Organize a folder to see activity here."
-        )
-        self._empty.setObjectName("Muted")
-        self._empty.setAlignment(Qt.AlignCenter)
-        self._empty.setVisible(False)
-        layout.addWidget(self._empty)
-
-    def _stat_card(self, label: str, value: str) -> QFrame:
-        card = QFrame()
-        card.setObjectName("StatCard")
-        lay = QVBoxLayout(card)
-        lay.setContentsMargins(18, 14, 18, 14)
-        lay.setSpacing(2)
-        val_lbl = QLabel(value)
-        val_lbl.setObjectName("StatValue")
-        cap_lbl = QLabel(label)
-        cap_lbl.setObjectName("StatLabel")
-        lay.addWidget(val_lbl)
-        lay.addWidget(cap_lbl)
-        card.value_label = val_lbl   # type: ignore[attr-defined]
-        return card
-
-    # ── Public refresh ─────────────────────────────────────────────
-
-    def refresh(self, *_args) -> None:
-        """Reload history from DB and repaint the table. Safe to call anytime."""
-        try:
-            history = DB.get_history(limit=500)
-        except Exception as exc:
-            logger.warning("HistoryView: cannot load history — %s", exc)
-            history = []
-
-        total   = len(history)
-        success = sum(1 for h in history if h.get("status") == "completed")
-        undone  = sum(1 for h in history if h.get("status") == "undone")
-
-        self._stat_total.value_label.setText(str(total))
-        self._stat_success.value_label.setText(str(success))
-        self._stat_undone.value_label.setText(str(undone))
-
-        if not history:
-            self._table.setVisible(False)
-            self._empty.setVisible(True)
+    def _render(self, rows: list) -> None:
+        self._clear()
+        if not rows:
+            empty = EmptyState(
+                "No activity yet",
+                "Scan and organize a folder — every action will be recorded here.",
+            )
+            self.flow.insertWidget(0, empty)
             return
 
-        self._table.setVisible(True)
-        self._empty.setVisible(False)
-        self._table.setRowCount(len(history))
+        groups: dict = {}
+        for r in rows:
+            day = str(r.get("performed_at") or r.get("timestamp") or "")[:10] or "Unknown day"
+            groups.setdefault(day, []).append(r)
 
-        for row, entry in enumerate(history):
-            status = entry.get("status", "")
-            icon, color = _STATUS_ICONS.get(status, ("•", "#A1A1A6"))
+        index = 0
+        for day, items in groups.items():
+            head = QLabel(day)
+            head.setObjectName("daNavGroup")
+            self.flow.insertWidget(index, head)
+            index += 1
+            for r in items:
+                self.flow.insertWidget(index, self._row(r))
+                index += 1
 
-            # Column 0 — Status icon + label
-            status_item = QTableWidgetItem(f" {icon}  {status}")
-            status_item.setForeground(QColor(color))
-            self._table.setItem(row, 0, status_item)
+    def _row(self, r: dict) -> QFrame:
+        frame = QFrame()
+        frame.setObjectName("daCard")
+        lay = QHBoxLayout(frame)
+        lay.setContentsMargins(14, 10, 14, 10)
+        lay.setSpacing(12)
 
-            # Column 1 — Action type
-            action = entry.get("action_type", "—")
-            self._table.setItem(row, 1, QTableWidgetItem(action))
+        status = r.get("status", "completed")
+        icon_name, _kind = _STATUS_ICON.get(status, ("history", "info"))
+        ic = QLabel()
+        ic.setFixedSize(20, 20)
+        ic.setPixmap(I.pixmap(icon_name, 20, "#8B5CF6"))
+        lay.addWidget(ic)
 
-            # Column 2 — Source filename
-            src = entry.get("source_path", "") or ""
-            self._table.setItem(row, 2, QTableWidgetItem(Path(src).name if src else "—"))
+        col = QVBoxLayout()
+        col.setSpacing(2)
+        source = Path(str(r.get("source_path", "")))
+        title = QLabel(f"{str(r.get('action_type', 'move')).title()} • {source.name}")
+        title.setStyleSheet("font-size: 13px; font-weight: 600;")
+        col.addWidget(title)
+        when = QLabel(str(r.get("performed_at") or r.get("timestamp") or "")[:19])
+        when.setObjectName("daProgressText")
+        col.addWidget(when)
+        lay.addLayout(col, 1)
 
-            # Column 3 — Category
-            self._table.setItem(row, 3, QTableWidgetItem(entry.get("category") or "—"))
+        lay.addWidget(CategoryBadge(r.get("category", "Unknown")))
+        st = QLabel(status)
+        st.setObjectName("daProgressText")
+        lay.addWidget(st)
+        return frame
 
-            # Column 4 — Destination filename
-            tgt = entry.get("target_path", "") or ""
-            self._table.setItem(row, 4, QTableWidgetItem(Path(tgt).name if tgt else "—"))
+    def _clear(self) -> None:
+        while self.flow.count() > 1:
+            item = self.flow.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
 
-            # Column 5 — Timestamp (truncated to minute)
-            when = entry.get("performed_at", "") or ""
-            self._table.setItem(row, 5, QTableWidgetItem(when[:16] if when else "—"))
+    # ── Undo ─────────────────────────────────────────────────────
+    def _start_undo(self):
+        self._undo_worker = _UndoWorker(self.service)
+        self._undo_worker.done.connect(self._on_undone)
+        self._undo_worker.failed.connect(
+            lambda m: self._toast("error", "Undo failed", m)
+        )
+        self._undo_worker.start()
 
-            self._table.setRowHeight(row, 36)
+    def _on_undone(self, result: dict):
+        self._toast("success", "Undo complete", f"{result.get('reversed', 0)} files restored.")
+        self.refresh()
+
+    def _toast(self, kind: str, title: str, msg: str):
+        toasts = getattr(self.window(), "toasts", None)
+        if toasts:
+            getattr(toasts, f"show_{kind}")(title, msg)
