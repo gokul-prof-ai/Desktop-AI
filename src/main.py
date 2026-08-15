@@ -87,6 +87,7 @@ def _launch_gui(args) -> int:
     from core.logger import get_logger
     from gui.theme.app_shell import apply_theme
     from gui.windows.main_window import MainWindow
+    from gui.dialogs.setup_wizard import SetupWizard
     from infrastructure.config.settings import Settings
     from services import ApplicationServices
 
@@ -104,11 +105,18 @@ def _launch_gui(args) -> int:
     )
     apply_theme(app, theme)
 
-    # Composition root: construct application-scoped services once and inject
-    # the container into the GUI shell. Views consume those shared services.
+    # Composition root: construct application-scoped services once
     services = ApplicationServices()
     services.start()
 
+    # Check if first run
+    if Settings.app.first_run:
+        # Show setup wizard
+        wizard = SetupWizard(services)
+        wizard.exec()
+        # Wizard sets first_run=False and saves config
+    
+    # Show main window
     window = MainWindow(services)
     window.show()
 

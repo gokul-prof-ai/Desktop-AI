@@ -44,7 +44,7 @@ class AppSettings:
     version: str = "2.0.0"
     theme: str = "dark"
     first_run: bool = True
-
+    scan_folder: str = ""
 
 @dataclass
 class AISettings:
