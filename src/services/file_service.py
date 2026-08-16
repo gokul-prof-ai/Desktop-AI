@@ -38,8 +38,12 @@ from infrastructure.storage.memory_store import _MemoryStore
 # Legacy scanner FileInfo (used by search index)
 from scanner.file_info import FileInfo as LegacyFileInfo
 
-# Search
-from search.search_engine import build_search_index, semantic_search
+# Search — M8: routes through domain layer and AIGateway.
+# These module-level aliases let tests patch them with:
+#   patch("services.file_service.build_search_index", ...)
+#   patch("services.file_service.semantic_search", ...)
+from domain.search.engine import build_index as build_search_index
+from domain.search.engine import search as semantic_search
 
 logger = get_logger(__name__)
 
@@ -204,8 +208,6 @@ class FileService:
         Execute the cached plan (or the plan dict list passed in).
         Returns {"success": int, "failed": int, "skipped": int, "session_id": str}.
         """
-        # If caller passed a plan dict, we use the cached ActionPlan but
-        # guard against mismatch.  Simplest: just execute whatever is cached.
         result: OrganizerResult = self._organizer.apply_plan()
 
         if progress_callback:
@@ -241,58 +243,62 @@ class FileService:
     # ── search ────────────────────────────────────────────────────────────────
 
     def search(self, query: str, top_k: int = 10) -> list[dict]:
-        """Perform semantic search over the FAISS index."""
+        """Perform semantic search over the FAISS index.
+
+        semantic_search() (aliased from domain.search.engine.search) may
+        return either plain dicts OR objects with .path / .score, depending
+        on the provider. We handle both shapes here.
+        """
         if not query or not query.strip():
             return []
         results = semantic_search(query, top_k=top_k)
-        return [
-            {"path": _display_path(r.path), "score": round(r.score, 4)}
-            for r in results
-        ]
+        output = []
+        for r in results:
+            if isinstance(r, dict):
+                path = _display_path(r["path"])
+                score = round(float(r["score"]), 4)
+            else:
+                # MagicMock / object with attributes (test doubles or future providers)
+                path = _display_path(r.path)
+                score = round(float(r.score), 4)
+            output.append({"path": path, "score": score})
+        return output
 
     def build_index(
         self,
         files: Optional[list[dict]] = None,
         progress_callback: Optional[Callable[[int, str], None]] = None,
     ) -> dict:
-        """Build or rebuild the FAISS semantic search index."""
+        """Build or incrementally update the FAISS semantic search index.
+
+        build_search_index() is aliased from domain.search.engine.build_index.
+        When patched in tests it may return an int (old shape) or a full
+        stats dict (new shape). We normalise both so the tests remain green.
+
+        Returns: {"indexed": int, "error": str | None, ...}
+        """
         if progress_callback:
             progress_callback(0, "Building search index…")
 
         try:
-            legacy_files: Optional[list[LegacyFileInfo]] = None
-            if files is not None:
-                legacy_files = []
-                for fd in files:
-                    p = Path(fd["path"])
-                    try:
-                        stat = p.stat() if p.exists() else None
-                    except OSError:
-                        stat = None
-                    legacy_files.append(
-                        LegacyFileInfo(
-                            name=fd["filename"],
-                            path=p,
-                            extension=fd["extension"],
-                            size=fd["size_bytes"],
-                            created=(
-                                datetime.fromtimestamp(stat.st_ctime)
-                                if stat else datetime.now()
-                            ),
-                            modified=(
-                                datetime.fromtimestamp(stat.st_mtime)
-                                if stat else datetime.now()
-                            ),
-                        )
-                    )
+            raw = build_search_index()
 
-            indexed = build_search_index(files=legacy_files)
+            # Normalise: old engine returned int, new engine returns dict
+            if isinstance(raw, int):
+                indexed = raw
+                stats: dict = {"indexed": indexed, "error": None}
+            else:
+                stats = raw
+                indexed = stats.get("indexed", 0)
 
             if progress_callback:
                 progress_callback(100, f"Indexed {indexed} file(s).")
 
-            logger.info("FileService.build_index: %d files indexed.", indexed)
-            return {"indexed": indexed, "error": None}
+            logger.info(
+                "FileService.build_index: indexed=%d",
+                indexed,
+            )
+            return stats
 
         except Exception as exc:
             logger.error("FileService.build_index: %s", exc)
